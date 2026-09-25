@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chat-bridge-oci"
+version = "0.1.0"
+description = "Minimal Streamable HTTP MCP coding bridge for an Oracle Cloud VPS"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=2.2,<3",
+]
+
+[project.scripts]
+chat-bridge-oci = "server:main"
+
+[tool.setuptools]
+py-modules = ["server"]
