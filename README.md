@@ -41,6 +41,7 @@ That's the canonical install path.
 Before installing, create or open your Secure MCP Tunnel in OpenAI Platform:
 
 https://platform.openai.com/settings/organization/tunnels
+https://platform.openai.com/settings/organization/api-keys
 
 Copy your own Tunnel ID from that page. It looks like:
 
