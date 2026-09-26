@@ -95,8 +95,8 @@ The MCP surface intentionally exposes exactly **one tool**:
 
 - `run_command` — run arbitrary argv-style commands inside the workspace.
 
-There are no separate file, Git, or toolbox tools. ChatGPT uses ordinary CLI
-programs through `run_command`, for example:
+There are no separate file or Git tools. ChatGPT uses ordinary CLI programs
+through `run_command`, for example:
 
 ```text
 ["git", "status"]
