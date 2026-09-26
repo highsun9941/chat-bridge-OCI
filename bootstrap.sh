@@ -3,9 +3,10 @@ set -Eeuo pipefail
 
 DEFAULT_TUNNEL_ID="tunnel_6ab6752e2e9c8191b323f8ad2626d3ed"
 INSTALL_DIR="/opt/chat-bridge-OCI"
-WORKSPACE_ROOT="/var/lib/chat-bridge/workspace"
+WORKSPACE_ROOT="/home/ubuntu/projects/chatgptweb"
 CHATBRIDGE_HOME="/var/lib/chatbridge"
 TUNNEL_HOME="/var/lib/tunnel-client"
+WORKSPACE_GROUP="chatgptweb"
 TUNNEL_ENV_DIR="/etc/chat-bridge-oci-tunnel"
 TUNNEL_ENV_FILE="$TUNNEL_ENV_DIR/tunnel.env"
 MCP_URL="http://127.0.0.1:8000/mcp"
@@ -57,8 +58,18 @@ fi
 if ! id -u tunnelclient >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$TUNNEL_HOME" --shell /usr/sbin/nologin tunnelclient
 fi
-install -d -o chatbridge -g chatbridge -m 0700 "$WORKSPACE_ROOT"
-install -d -o chatbridge -g chatbridge -m 0700 \
+if ! getent group "$WORKSPACE_GROUP" >/dev/null 2>&1; then
+  groupadd --system "$WORKSPACE_GROUP"
+fi
+usermod -a -G "$WORKSPACE_GROUP" chatbridge
+if id -u ubuntu >/dev/null 2>&1; then
+  usermod -a -G "$WORKSPACE_GROUP" ubuntu
+  install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/projects
+  install -d -o ubuntu -g "$WORKSPACE_GROUP" -m 2770 "$WORKSPACE_ROOT"
+else
+  install -d -o chatbridge -g "$WORKSPACE_GROUP" -m 2770 "$WORKSPACE_ROOT"
+fi
+install -d -o chatbridge -g "$WORKSPACE_GROUP" -m 2770 \
   "$WORKSPACE_ROOT/.home" \
   "$WORKSPACE_ROOT/.tmp" \
   "$WORKSPACE_ROOT/.cache"
@@ -147,7 +158,7 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=false
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 ReadWritePaths=$WORKSPACE_ROOT
 ReadOnlyPaths=/tmp /var/tmp
 ProtectKernelTunables=true
@@ -157,7 +168,7 @@ RestrictSUIDSGID=true
 LockPersonality=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-UMask=0077
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target
