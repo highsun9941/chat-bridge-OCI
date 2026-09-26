@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DEFAULT_TUNNEL_ID="tunnel_6ab6752e2e9c8191b323f8ad2626d3ed"
 INSTALL_DIR="/opt/chat-bridge-OCI"
 WORKSPACE_ROOT="/home/ubuntu/projects/chatgptweb"
 CHATBRIDGE_HOME="/var/lib/chatbridge"
@@ -24,8 +23,13 @@ fi
 
 command -v apt-get >/dev/null 2>&1 || die "This bootstrap currently supports Ubuntu/Debian images (apt-get required)."
 
-TUNNEL_ID="${OPENAI_TUNNEL_ID:-$DEFAULT_TUNNEL_ID}"
-[[ "$TUNNEL_ID" =~ ^tunnel_[0-9a-f]{32}$ ]] || die "Invalid tunnel id: $TUNNEL_ID"
+TUNNEL_ID="${OPENAI_TUNNEL_ID:-}"
+if [[ -z "$TUNNEL_ID" ]]; then
+  [[ -r /dev/tty ]] || die "No TTY available. Set OPENAI_TUNNEL_ID and re-run."
+  printf 'OpenAI Secure MCP Tunnel ID (example: tunnel_6ab...): ' >/dev/tty
+  IFS= read -r TUNNEL_ID </dev/tty
+fi
+[[ "$TUNNEL_ID" =~ ^tunnel_[0-9a-f]{32}$ ]] || die "Invalid tunnel id. Expected tunnel_ followed by 32 lowercase hexadecimal characters."
 
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
 if [[ -z "$RUNTIME_KEY" ]]; then
