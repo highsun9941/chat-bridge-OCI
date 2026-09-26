@@ -42,8 +42,9 @@ After bootstrap:
 - `chat-bridge-oci-tunnel.service` is enabled and active.
 - MCP runs as non-root user `chatbridge`.
 - tunnel-client runs as non-root user `tunnelclient`.
-- workspace is `/var/lib/chat-bridge/workspace`.
+- workspace is `/home/ubuntu/projects/chatgptweb`.
 - `chatbridge` has full read/write/execute access inside that workspace.
+- `ubuntu` and `chatbridge` share the `chatgptweb` group so the Ubuntu-side dashboard can browse the same files.
 - all MCP tools are available and `run_command` has no executable blocklist.
 - persistent filesystem writes from the MCP service are confined to the workspace.
 - MCP binds only to `127.0.0.1:8000`.
@@ -81,7 +82,7 @@ Manual smoke test:
 
 ```bash
 sudo -u chatbridge env \
-  HOME=/var/lib/chatbridge \
+  HOME=/home/ubuntu/projects/chatgptweb/.home \
   MCP_URL=http://127.0.0.1:8000/mcp \
   /opt/chat-bridge-OCI/.venv/bin/python \
   /opt/chat-bridge-OCI/smoke_test.py
@@ -92,7 +93,7 @@ sudo -u chatbridge env \
 Only repositories below this directory are intended for ChatGPT coding work:
 
 ```text
-/var/lib/chat-bridge/workspace
+/home/ubuntu/projects/chatgptweb
 ```
 
 Put projects under that root rather than weakening the path checks.
@@ -111,7 +112,7 @@ Do not:
 
 `run_command` intentionally permits any executable available to `chatbridge`.
 The systemd sandbox, not a command blocklist, is the security boundary.
-Keep `ProtectSystem=strict`, `ReadWritePaths=/var/lib/chat-bridge/workspace`,
+Keep `ProtectSystem=strict`, `ReadWritePaths=/home/ubuntu/projects/chatgptweb`,
 `NoNewPrivileges=true`, and the empty capability set intact.
 
 ## Troubleshooting
