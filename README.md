@@ -41,11 +41,25 @@ That's the canonical install path.
 The script elevates itself with `sudo` when needed and asks once for the
 **OpenAI Secure MCP Tunnel runtime API key** using a hidden prompt.
 
-The default tunnel is already configured for this deployment:
+Before running the bootstrap, create or open your Secure MCP Tunnel in
+OpenAI Platform:
+
+https://platform.openai.com/settings/organization/tunnels
+
+Copy your own Tunnel ID from that page. It looks like:
 
 ```text
-tunnel_6ab6752e2e9c8191b323f8ad2626d3ed
+tunnel_6ab...
 ```
+
+Then run the installer with your Tunnel ID:
+
+```bash
+OPENAI_TUNNEL_ID=tunnel_6ab... bash chat-bridge-OCI/bootstrap.sh
+```
+
+The script will ask separately for the **OpenAI Secure MCP Tunnel runtime API
+key** using a hidden prompt.
 
 The runtime API key is never committed to Git. It is written to:
 
@@ -54,12 +68,6 @@ The runtime API key is never committed to Git. It is written to:
 ```
 
 with `root:tunnelclient` ownership and mode `0640`.
-
-If the tunnel ID ever changes, override it for one install:
-
-```bash
-OPENAI_TUNNEL_ID=tunnel_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx bash chat-bridge-OCI/bootstrap.sh
-```
 
 ## What bootstrap.sh does
 
