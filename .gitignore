@@ -1,4 +1,6 @@
 .venv/
+*.egg-info/
+.work/
 __pycache__/
 *.py[cod]
 .env

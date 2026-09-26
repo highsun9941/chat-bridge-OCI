@@ -1,4 +1,4 @@
-"""Startup regressions: real local MCP, no systemd daemon or credentials needed."""
+"""Command and startup regressions; no root, systemd daemon, or tunnel keys needed."""
 from __future__ import annotations
 
 import asyncio
@@ -12,9 +12,44 @@ import time
 import unittest
 from unittest.mock import patch
 
+import server
 import smoke_test
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class CommandResultTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workdir = Path(temp.name)
+        workdir = patch.object(server, "DEFAULT_WORKDIR", self.workdir)
+        workdir.start()
+        self.addCleanup(workdir.stop)
+
+    def test_exit_status_output_and_workdir(self) -> None:
+        for code, cwd in [(0, "."), (7, str(self.workdir))]:
+            with self.subTest(exit_code=code, cwd=cwd):
+                argv = [sys.executable, "-c",
+                        f"import sys; print('out'); print('err', file=sys.stderr); sys.exit({code})"]
+                result = server.run_command(argv, cwd=cwd)
+                self.assertEqual(result, {
+                    "argv": argv, "cwd": str(self.workdir), "exit_code": code,
+                    "stdout": "out\n", "stderr": "err\n",
+                    "timed_out": False, "truncated": False,
+                })
+
+    def test_timeout_preserves_partial_output_and_truncation(self) -> None:
+        argv = [sys.executable, "-c",
+                "import os, time; os.write(1, '가나다라마바사아자차'.encode()); "
+                "os.write(2, b'\\xff'); time.sleep(60)"]
+        with patch.object(server, "MAX_COMMAND_OUTPUT", 8):
+            result = server.run_command(argv, timeout_seconds=1)
+        self.assertIsNone(result["exit_code"])
+        self.assertTrue(result["timed_out"])
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["stdout"], "가나다라마바사아\n...[truncated]")
+        self.assertEqual(result["stderr"], "\ufffd")
 
 
 class MCPStartupTests(unittest.TestCase):

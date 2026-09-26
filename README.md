@@ -1,237 +1,121 @@
 # chat-bridge-OCI
 
-Use the ChatGPT web chat experience as a private **Oracle Cloud Infrastructure (OCI) instance management agent**.
+Manage an OCI instance from ChatGPT through OpenAI Secure MCP Tunnel.
+The MCP server exposes one tool, `run_command`, with **root privileges**.
+Its default work directory, `/home/ubuntu/projects/chatgptweb`, is a convenience,
+not a filesystem sandbox. Keep a recovery path such as a boot-volume backup.
 
-This project runs a minimal MCP server on an OCI VPS and connects it to ChatGPT through **OpenAI Secure MCP Tunnel**.
+## Install
 
-```text
-ChatGPT web chat
-      |
-      | OpenAI Secure MCP Tunnel
-      v
-OpenAI tunnel endpoint
-      ^
-      | outbound HTTPS only
-      |
-OCI tunnel-client
-      |
-      v
-127.0.0.1:8000/mcp
-      |
-      v
-chat-bridge-OCI
-      |
-      v
-root-level OCI instance administration
-```
+Requirements: Ubuntu 24.04+ or Debian 12+, Python 3.11+, systemd, `git`,
+and root or sudo access. Linux amd64 and arm64 are supported.
 
-The MCP endpoint stays on loopback. Do **not** expose TCP 8000 in an OCI Security List, NSG, or public firewall.
-
-## What this is for
-
-The bridge is intended for day-to-day OCI VPS administration from ChatGPT, for example:
-
-- checking systemd service status and logs;
-- inspecting Hermes or other agent processes;
-- restarting and repairing services;
-- updating installed CLI tools;
-- installing and managing Docker;
-- installing and managing Tailscale;
-- installing OCI CLI and other administration utilities;
-- inspecting networking, storage, packages, processes, and system configuration;
-- editing files under `/etc`, `/usr`, `/var`, `/opt`, or other system paths when maintenance requires it;
-- using `/home/ubuntu/projects/chatgptweb` as the default location for ordinary project files and scratch work.
-
-## Important security warning
-
-This configuration intentionally runs the MCP management service as **root**.
-
-That means ChatGPT, through the connected private MCP app, can execute commands with full administrative privileges on the instance. The default project directory is a workflow convention, **not a filesystem security boundary**.
-
-Use this only on an instance you are comfortable administering through ChatGPT. Keep the tunnel runtime key private, keep port 8000 loopback-only, and maintain a recovery path such as OCI boot-volume backups or snapshots.
-
-## Fresh OCI installation
-
-On a fresh **Ubuntu 24.04+ or Debian 12+ OCI instance** (Python 3.11+, systemd,
-and `git` available; use the `ubuntu` account with sudo or root):
+Prepare your [Secure MCP Tunnel](https://platform.openai.com/settings/organization/tunnels)
+and runtime API key. Using the server from ChatGPT also requires a tunnel-backed
+app configured in ChatGPT.
 
 ```bash
 git clone https://github.com/highsun9941/chat-bridge-OCI.git
 bash chat-bridge-OCI/bootstrap.sh
 ```
 
-The installer will ask for two values.
+Enter your **Tunnel ID** (`tunnel_...`), then your **runtime API key** at the hidden
+prompt. Bootstrap elevates itself with sudo. These two commands and two inputs
+are the complete instance-side installation.
 
-These are the four installation inputs: the two commands above, your **Tunnel
-ID**, and your **runtime API key**. No separate `sudo` command is needed;
-bootstrap elevates itself. Oracle Linux images are not supported by this
-apt-based installer.
+For automation, securely supply `OPENAI_TUNNEL_ID` and `CONTROL_PLANE_API_KEY`
+in the environment. There are no default credentials, and `.env` files are not
+automatically loaded.
 
-First, create or open your Secure MCP Tunnel:
+Bootstrap installs the application and the latest official
+[OpenAI tunnel-client](https://github.com/openai/tunnel-client) release, checking
+its SHA-256 digest when published. It enables both services at boot:
 
-https://platform.openai.com/settings/organization/tunnels
+| Service | User | Loopback endpoint |
+| --- | --- | --- |
+| `chat-bridge-oci.service` | `root` | `127.0.0.1:8000/mcp` |
+| `chat-bridge-oci-tunnel.service` | `tunnelclient` | `127.0.0.1:8080/readyz` |
 
-Copy your Tunnel ID. It looks like:
+The tunnel uses outbound HTTPS. Do not open inbound port 8000 or bind MCP publicly.
+Application files live in `/opt/chat-bridge-OCI`; tunnel credentials live in
+`/etc/chat-bridge-oci-tunnel/tunnel.env` with restricted permissions. Never print
+or commit credentials.
 
-```text
-tunnel_6ab...
-```
+## Update and check
 
-Then obtain the runtime API key associated with your tunnel setup.
-
-This installs the instance side of the connection. The tunnel must already
-exist, and using it from ChatGPT also requires a tunnel-backed app configured
-in ChatGPT.
-
-When `bootstrap.sh` starts:
-
-```text
-OpenAI Secure MCP Tunnel ID (example: tunnel_6ab...):
-OpenAI tunnel runtime API key (hidden):
-```
-
-No personal Tunnel ID is stored in this repository.
-
-The runtime key is written to:
-
-```text
-/etc/chat-bridge-oci-tunnel/tunnel.env
-```
-
-with restricted permissions and is never committed to Git.
-
-## What bootstrap.sh does
-
-The installer:
-
-1. installs the required Ubuntu/Debian packages;
-2. installs this repository to `/opt/chat-bridge-OCI`;
-3. creates the default agent work directory at `/home/ubuntu/projects/chatgptweb`;
-4. installs the Python MCP server;
-5. downloads the latest official Linux `openai/tunnel-client` release;
-6. verifies the published SHA-256 digest when available;
-7. installs `chat-bridge-oci.service` as a **root** systemd service;
-8. installs the tunnel as a separate non-root `tunnelclient` service;
-9. binds MCP only to `127.0.0.1:8000/mcp`;
-10. restarts the services to apply the installed code and configuration, even on a re-install;
-11. waits for the tunnel readiness endpoint before reporting success.
-
-Both services are enabled at boot. On every MCP start, an `ExecStartPost` check
-waits up to 60 seconds for an MCP connection and exactly the `run_command` tool.
-The tunnel's `After=`/`Requires=` dependencies wait for that check to succeed,
-so a slow MCP startup cannot race OAuth discovery. The tunnel also sets
-`MCP_STARTUP_WAIT_TIMEOUT=60s` using the official client's startup wait option.
-
-## MCP surface
-
-The server intentionally exposes exactly **one MCP tool**:
-
-- `run_command`
-
-`run_command` accepts argv-style commands and can execute any executable available to root.
-
-Examples:
-
-```text
-["systemctl", "status", "hermes-desktop.service", "--no-pager"]
-["journalctl", "-u", "hermes-desktop.service", "-n", "200", "--no-pager"]
-["docker", "ps", "-a"]
-["tailscale", "status"]
-["bash", "-lc", "apt-get update && apt-get upgrade -y"]
-```
-
-The default working directory is:
-
-```text
-/home/ubuntu/projects/chatgptweb
-```
-
-Relative `cwd` values resolve below that directory. Absolute `cwd` values such as `/etc`, `/var`, `/opt`, and `/root` are also allowed.
-
-## Operating policy
-
-The intended behavior is:
-
-- create ordinary project files, notes, scripts, and scratch artifacts under `/home/ubuntu/projects/chatgptweb`;
-- modify system paths when the requested maintenance task requires it;
-- avoid touching unrelated user data;
-- inspect state before destructive changes;
-- back up important configuration files before replacing them when practical;
-- do not commit secrets, tunnel keys, API keys, or private credentials to Git;
-- confirm before high-impact irreversible actions such as disk formatting, destructive storage operations, or changes likely to lock out SSH access, unless the user explicitly requested that exact action.
-
-These are operating rules, not OS-enforced write restrictions.
-
-## Service layout
-
-```text
-/opt/chat-bridge-OCI
-/home/ubuntu/projects/chatgptweb
-/var/lib/tunnel-client
-/etc/chat-bridge-oci-tunnel/tunnel.env
-/etc/systemd/system/chat-bridge-oci.service
-/etc/systemd/system/chat-bridge-oci-tunnel.service
-/usr/local/bin/tunnel-client
-```
-
-Useful checks:
-
-```bash
-systemctl status chat-bridge-oci.service
-systemctl status chat-bridge-oci-tunnel.service
-curl -fsS http://127.0.0.1:8080/healthz
-curl -fsS http://127.0.0.1:8080/readyz
-```
-
-Manual MCP smoke test:
-
-```bash
-sudo env \
-  HOME=/root \
-  AGENT_WORKDIR=/home/ubuntu/projects/chatgptweb \
-  MCP_URL=http://127.0.0.1:8000/mcp \
-  /opt/chat-bridge-OCI/.venv/bin/python \
-  /opt/chat-bridge-OCI/smoke_test.py
-```
-
-The expected tool list is exactly:
-
-```text
-run_command
-```
-
-## Updating an existing instance
-
-From the repository clone:
+From the repository clone, run:
 
 ```bash
 git pull --ff-only
-sudo bash bootstrap.sh
+bash bootstrap.sh
 ```
 
-Re-running bootstrap refreshes the installed source, Python environment,
-tunnel-client binary, systemd units, and health checks. It asks for the Tunnel
-ID and runtime key again (or accepts `OPENAI_TUNNEL_ID` and
-`CONTROL_PLANE_API_KEY` from a securely supplied environment). It stops the
-tunnel, restarts MCP and waits for its protocol check, then restarts the tunnel
-with the new configuration. Expect a brief interruption while updating.
+Supply the same two inputs again. Bootstrap refreshes the installation, stops
+the tunnel, restarts MCP, then restarts the tunnel with the new settings.
+On every MCP start, a protocol check waits up to 60 seconds for exactly
+`run_command` before the dependent tunnel starts. The tunnel also sets
+`MCP_STARTUP_WAIT_TIMEOUT=60s`.
 
-An older local `10-startup-race.conf` workaround is no longer needed for a
-fresh installation. Bootstrap preserves existing local systemd drop-ins;
-inspect them with `systemctl cat chat-bridge-oci-tunnel.service` if an updated
-instance still behaves differently from a fresh install.
+```bash
+systemctl is-active chat-bridge-oci.service chat-bridge-oci-tunnel.service
+systemctl is-enabled chat-bridge-oci.service chat-bridge-oci-tunnel.service
+systemctl show chat-bridge-oci.service -p User -p Group
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/readyz
+sudo /opt/chat-bridge-OCI/.venv/bin/python /opt/chat-bridge-OCI/smoke_test.py
+```
 
-If the same OpenAI Tunnel ID is reused, the existing ChatGPT tunnel-backed app can reconnect to the rebuilt or updated instance without recreating the app.
+Expect both services active/enabled, the MCP service running as root, both HTTP
+checks succeeding, and only `run_command` in the tool list. To inspect failures:
 
-## Security model
+```bash
+sudo journalctl -u chat-bridge-oci.service -u chat-bridge-oci-tunnel.service -n 150 --no-pager
+```
 
-- MCP listens only on `127.0.0.1:8000`.
-- The Secure MCP Tunnel makes outbound HTTPS connections to OpenAI.
-- The tunnel-client runs as a separate non-root account.
-- The MCP management service runs as root intentionally.
-- The MCP service does **not** use `ProtectSystem=strict`, `ReadWritePaths`, an empty capability set, or a non-root sandbox, because those controls would block general instance administration.
-- The default work directory is organizational, not restrictive.
-- The runtime tunnel credential stays outside the repository.
-- Child commands receive a reduced environment, while the root service PATH includes standard administrative directories.
+Bootstrap preserves local systemd drop-ins. Use `systemctl cat` with the service
+name to inspect any overrides when an existing installation behaves differently.
 
-This repository prioritizes full instance-management capability over filesystem sandboxing.
+## Command interface and configuration
+
+`run_command(argv, cwd=".", timeout_seconds=120)` runs an argv-style command,
+for example `["systemctl", "status", "docker", "--no-pager"]`.
+Relative `cwd` values resolve from `AGENT_WORKDIR`; absolute paths are allowed.
+The result contains `argv`, `cwd`, `exit_code`, `stdout`, `stderr`, `timed_out`,
+and `truncated`. A timeout returns `exit_code: null` and any captured output.
+
+The Python server reads these environment variables. For an installed service,
+use a systemd override; for local development, set them when launching it.
+
+| Variable | Default |
+| --- | --- |
+| `AGENT_WORKDIR` | `/home/ubuntu/projects/chatgptweb` |
+| `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8000` (keep the host on loopback) |
+| `MAX_COMMAND_TIMEOUT` | `600` seconds; requests are clamped to 1–600 by default |
+| `MAX_COMMAND_OUTPUT` | `200000` characters per output stream |
+| `CHAT_BRIDGE_EXTRA_ENV_KEYS` | Empty; comma-separated extra variables inherited by child commands |
+
+Child commands inherit a reduced environment. The smoke test separately reads
+`MCP_URL`, defaulting to `http://127.0.0.1:8000/mcp`.
+If you override the MCP address, also align that probe URL and the tunnel's
+`MCP_SERVER_URL` with it.
+
+## Local development
+
+Use a virtual environment from the repository directory; no tunnel key or root
+access is needed for these checks:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m unittest discover -s tests -v
+bash -n bootstrap.sh
+```
+
+To run the server locally with your own user privileges:
+
+```bash
+AGENT_WORKDIR="$PWD/.work" .venv/bin/chat-bridge-oci
+```
+
+From another terminal, run `.venv/bin/python smoke_test.py`.
+See [AGENTS.md](AGENTS.md) for maintenance rules.

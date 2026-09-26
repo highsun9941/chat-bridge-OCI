@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
 INSTALL_DIR="/opt/chat-bridge-OCI"
 AGENT_WORKDIR="/home/ubuntu/projects/chatgptweb"
 TUNNEL_HOME="/var/lib/tunnel-client"
 TUNNEL_ENV_DIR="/etc/chat-bridge-oci-tunnel"
 TUNNEL_ENV_FILE="$TUNNEL_ENV_DIR/tunnel.env"
-MCP_URL="http://127.0.0.1:8000/mcp"
-HEALTH_URL="http://127.0.0.1:8080"
+MCP_HOST="127.0.0.1"
+MCP_PORT=8000
+HEALTH_ADDR="127.0.0.1:8080"
+MCP_URL="http://$MCP_HOST:$MCP_PORT/mcp"
+HEALTH_URL="http://$HEALTH_ADDR"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+if (( EUID != 0 )); then
   command -v sudo >/dev/null 2>&1 || die "sudo is required when not running as root"
   exec sudo -E bash "$0" "$@"
 fi
@@ -27,7 +30,7 @@ if [[ -z "$TUNNEL_ID" ]]; then
   printf 'OpenAI Secure MCP Tunnel ID (example: tunnel_6ab...): ' >/dev/tty
   IFS= read -r TUNNEL_ID </dev/tty
 fi
-[[ "$TUNNEL_ID" =~ ^tunnel_[0-9a-f]{32}$ ]] || die "Invalid tunnel id. Expected tunnel_ followed by 32 lowercase hexadecimal characters."
+[[ "$TUNNEL_ID" =~ ^tunnel_[a-z0-9]{32}$ ]] || die "Invalid tunnel id. Expected tunnel_ followed by 32 lowercase letters or digits."
 
 RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
 if [[ -z "$RUNTIME_KEY" ]]; then
@@ -43,17 +46,17 @@ log "Installing OS dependencies"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y --no-install-recommends \
-  ca-certificates curl unzip python3 python3-venv python3-pip git util-linux
+  ca-certificates curl unzip python3 python3-venv
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || \
   die "Python 3.11+ is required. Use Ubuntu 24.04+ or Debian 12+."
 
 log "Installing repository into $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
+install -d -o root -g root -m 0755 "$INSTALL_DIR"
 if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
-  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  cp -a "$SCRIPT_DIR"/. "$INSTALL_DIR"/
+  for file in bootstrap.sh pyproject.toml server.py smoke_test.py README.md AGENTS.md; do
+    install -o root -g root -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_DIR/$file"
+  done
 fi
-chown -R root:root "$INSTALL_DIR"
 
 log "Creating default agent work directory"
 if id -u ubuntu >/dev/null 2>&1; then
@@ -72,9 +75,7 @@ install -d -o tunnelclient -g tunnelclient -m 0750 "$TUNNEL_HOME"
 log "Installing MCP Python service"
 rm -rf "$INSTALL_DIR/.venv"
 python3 -m venv "$INSTALL_DIR/.venv"
-"$INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip
-"$INSTALL_DIR/.venv/bin/pip" install -e "$INSTALL_DIR"
-chown -R root:root "$INSTALL_DIR/.venv"
+"$INSTALL_DIR/.venv/bin/python" -m pip install -e "$INSTALL_DIR"
 
 log "Installing latest official OpenAI tunnel-client"
 TMP_DIR="$(mktemp -d)"
@@ -86,42 +87,34 @@ curl -fsSL \
   https://api.github.com/repos/openai/tunnel-client/releases/latest \
   -o "$RELEASE_JSON"
 
-TAG="$(python3 - "$RELEASE_JSON" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding='utf-8') as f:
-    print(json.load(f)['tag_name'])
-PY
-)"
-
 case "$(uname -m)" in
   x86_64|amd64) ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
   *) die "Unsupported CPU architecture: $(uname -m)" ;;
 esac
 
-ASSET="tunnel-client-${TAG}-linux-${ARCH}.zip"
-read -r ASSET_URL ASSET_DIGEST < <(python3 - "$RELEASE_JSON" "$ASSET" <<'PY'
+read -r ASSET_URL ASSET_DIGEST < <(python3 - "$RELEASE_JSON" "$ARCH" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as f:
     release = json.load(f)
-name = sys.argv[2]
+name = f"tunnel-client-{release['tag_name']}-linux-{sys.argv[2]}.zip"
 for asset in release.get('assets', []):
     if asset.get('name') == name:
-        print(asset['browser_download_url'], asset.get('digest', ''))
+        print(asset['browser_download_url'], asset.get('digest') or '')
         break
 else:
     raise SystemExit(f'asset not found: {name}')
 PY
 )
 
-ARCHIVE="$TMP_DIR/$ASSET"
+ARCHIVE="$TMP_DIR/tunnel-client.zip"
 curl -fL "$ASSET_URL" -o "$ARCHIVE"
 if [[ "$ASSET_DIGEST" == sha256:* ]]; then
   printf '%s  %s\n' "${ASSET_DIGEST#sha256:}" "$ARCHIVE" | sha256sum -c -
 fi
 unzip -q "$ARCHIVE" -d "$TMP_DIR/tunnel-client"
 TUNNEL_BIN="$(find "$TMP_DIR/tunnel-client" -type f -name tunnel-client -print -quit)"
-[[ -n "$TUNNEL_BIN" ]] || die "tunnel-client binary not found in $ASSET"
+[[ -n "$TUNNEL_BIN" ]] || die "tunnel-client binary not found in release archive"
 install -o root -g root -m 0755 "$TUNNEL_BIN" /usr/local/bin/tunnel-client
 /usr/local/bin/tunnel-client --version
 
@@ -141,8 +134,8 @@ Environment=AGENT_WORKDIR=$AGENT_WORKDIR
 Environment=HOME=/root
 Environment=TMPDIR=/tmp
 Environment=XDG_CACHE_HOME=/root/.cache
-Environment=MCP_HOST=127.0.0.1
-Environment=MCP_PORT=8000
+Environment=MCP_HOST=$MCP_HOST
+Environment=MCP_PORT=$MCP_PORT
 Environment=MCP_URL=$MCP_URL
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -172,7 +165,7 @@ umask 077
   printf 'CONTROL_PLANE_TUNNEL_ID=%s\n' "$(quote_env "$TUNNEL_ID")"
   printf 'MCP_SERVER_URL=%s\n' "$(quote_env "$MCP_URL")"
   printf 'MCP_STARTUP_WAIT_TIMEOUT=%s\n' "$(quote_env '60s')"
-  printf 'HEALTH_LISTEN_ADDR=%s\n' "$(quote_env '127.0.0.1:8080')"
+  printf 'HEALTH_LISTEN_ADDR=%s\n' "$(quote_env "$HEALTH_ADDR")"
 } >"$TUNNEL_ENV_FILE"
 chown root:tunnelclient "$TUNNEL_ENV_FILE"
 chmod 0640 "$TUNNEL_ENV_FILE"

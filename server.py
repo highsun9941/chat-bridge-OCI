@@ -16,8 +16,6 @@ PORT = int(os.environ.get("MCP_PORT", "8000"))
 MAX_COMMAND_OUTPUT = int(os.environ.get("MAX_COMMAND_OUTPUT", "200000"))
 MAX_COMMAND_TIMEOUT = int(os.environ.get("MAX_COMMAND_TIMEOUT", "600"))
 
-DEFAULT_WORKDIR.mkdir(parents=True, exist_ok=True)
-
 mcp = MCPServer("OCI Instance Management Agent")
 
 COMMAND = ToolAnnotations(
@@ -64,13 +62,27 @@ def _safe_child_env() -> dict[str, str]:
     return {key: value for key, value in os.environ.items() if key in keys}
 
 
-def _truncate(value: str) -> tuple[str, bool]:
+def _format_output(value: str | bytes | None) -> tuple[str, bool]:
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", "replace")
+    value = value or ""
     if len(value) <= MAX_COMMAND_OUTPUT:
         return value, False
     return value[:MAX_COMMAND_OUTPUT] + "\n...[truncated]", True
 
 
-def _run(argv: list[str], cwd: str, timeout_seconds: int) -> dict[str, Any]:
+@mcp.tool(annotations=COMMAND)
+def run_command(
+    argv: list[str],
+    cwd: str = ".",
+    timeout_seconds: int = 120,
+) -> dict[str, Any]:
+    """Run an argv-style command on the OCI instance.
+
+    The deployed service runs as root. Relative cwd resolves from AGENT_WORKDIR;
+    absolute system paths are allowed.
+    Example: ["systemctl", "status", "docker", "--no-pager"].
+    """
     if not argv or not all(isinstance(item, str) and item for item in argv):
         raise ValueError("argv must be a non-empty list of non-empty strings")
 
@@ -90,63 +102,27 @@ def _run(argv: list[str], cwd: str, timeout_seconds: int) -> dict[str, Any]:
             timeout=timeout,
             check=False,
         )
-        stdout, out_truncated = _truncate(completed.stdout)
-        stderr, err_truncated = _truncate(completed.stderr)
-        return {
-            "argv": argv,
-            "cwd": str(workdir),
-            "exit_code": completed.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "timed_out": False,
-            "truncated": out_truncated or err_truncated,
-        }
+        stdout, stderr = completed.stdout, completed.stderr
+        exit_code = completed.returncode
     except subprocess.TimeoutExpired as exc:
-        stdout = (
-            exc.stdout
-            if isinstance(exc.stdout, str)
-            else (exc.stdout or b"").decode("utf-8", "replace")
-        )
-        stderr = (
-            exc.stderr
-            if isinstance(exc.stderr, str)
-            else (exc.stderr or b"").decode("utf-8", "replace")
-        )
-        stdout, out_truncated = _truncate(stdout)
-        stderr, err_truncated = _truncate(stderr)
-        return {
-            "argv": argv,
-            "cwd": str(workdir),
-            "exit_code": None,
-            "stdout": stdout,
-            "stderr": stderr,
-            "timed_out": True,
-            "truncated": out_truncated or err_truncated,
-        }
+        stdout, stderr = exc.stdout, exc.stderr
+        exit_code = None
 
-
-@mcp.tool(annotations=COMMAND)
-def run_command(
-    argv: list[str],
-    cwd: str = ".",
-    timeout_seconds: int = 120,
-) -> dict[str, Any]:
-    """Run an arbitrary argv-style command on the OCI instance.
-
-    The service is intentionally designed to run as root for full instance
-    administration. The default working directory is AGENT_WORKDIR
-    (/home/ubuntu/projects/chatgptweb by default), but cwd may also be an
-    absolute system path such as /etc, /var, /opt, or /root.
-
-    Use argv form, for example:
-    ["systemctl", "status", "docker"]
-    ["journalctl", "-u", "hermes-desktop.service", "-n", "200", "--no-pager"]
-    ["bash", "-lc", "apt-get update && apt-get install -y tailscale"]
-    """
-    return _run(argv, cwd, timeout_seconds)
+    stdout, out_truncated = _format_output(stdout)
+    stderr, err_truncated = _format_output(stderr)
+    return {
+        "argv": argv,
+        "cwd": str(workdir),
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "timed_out": exit_code is None,
+        "truncated": out_truncated or err_truncated,
+    }
 
 
 def main() -> None:
+    DEFAULT_WORKDIR.mkdir(parents=True, exist_ok=True)
     mcp.run(
         transport="streamable-http",
         host=HOST,
