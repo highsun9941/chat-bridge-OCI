@@ -43,6 +43,9 @@ After bootstrap:
 - MCP runs as non-root user `chatbridge`.
 - tunnel-client runs as non-root user `tunnelclient`.
 - workspace is `/var/lib/chat-bridge/workspace`.
+- `chatbridge` has full read/write/execute access inside that workspace.
+- all MCP tools are available and `run_command` has no executable blocklist.
+- persistent filesystem writes from the MCP service are confined to the workspace.
 - MCP binds only to `127.0.0.1:8000`.
 - tunnel health is available only on loopback at `127.0.0.1:8080`.
 - no inbound OCI firewall/NSG rule is needed for port 8000.
@@ -106,8 +109,10 @@ Do not:
 - print credentials while troubleshooting;
 - disable workspace path validation or systemd hardening merely to make a test pass.
 
-`run_command` is a powerful coding primitive. The dedicated Linux account's
-filesystem and OS permissions are the real security boundary.
+`run_command` intentionally permits any executable available to `chatbridge`.
+The systemd sandbox, not a command blocklist, is the security boundary.
+Keep `ProtectSystem=strict`, `ReadWritePaths=/var/lib/chat-bridge/workspace`,
+`NoNewPrivileges=true`, and the empty capability set intact.
 
 ## Troubleshooting
 
