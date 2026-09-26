@@ -9,10 +9,7 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 DEFAULT_WORKDIR = Path(
-    os.environ.get(
-        "AGENT_WORKDIR",
-        os.environ.get("WORKSPACE_ROOT", "/home/ubuntu/projects/chatgptweb"),
-    )
+    os.environ.get("AGENT_WORKDIR", "/home/ubuntu/projects/chatgptweb")
 ).expanduser().resolve()
 HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MCP_PORT", "8000"))
