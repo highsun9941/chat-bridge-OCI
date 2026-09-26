@@ -38,11 +38,7 @@ bash chat-bridge-OCI/bootstrap.sh
 
 That's the canonical install path.
 
-The script elevates itself with `sudo` when needed and asks once for the
-**OpenAI Secure MCP Tunnel runtime API key** using a hidden prompt.
-
-Before running the bootstrap, create or open your Secure MCP Tunnel in
-OpenAI Platform:
+Before installing, create or open your Secure MCP Tunnel in OpenAI Platform:
 
 https://platform.openai.com/settings/organization/tunnels
 
@@ -52,14 +48,17 @@ Copy your own Tunnel ID from that page. It looks like:
 tunnel_6ab...
 ```
 
-Then run the installer with your Tunnel ID:
+When `bootstrap.sh` starts, it asks for two values:
 
-```bash
-OPENAI_TUNNEL_ID=tunnel_6ab... bash chat-bridge-OCI/bootstrap.sh
+1. your **Secure MCP Tunnel ID**;
+2. your **Secure MCP Tunnel runtime API key** (entered with a hidden prompt).
+
+Example flow:
+
+```text
+OpenAI Secure MCP Tunnel ID (example: tunnel_6ab...): tunnel_6ab...
+OpenAI tunnel runtime API key (hidden):
 ```
-
-The script will ask separately for the **OpenAI Secure MCP Tunnel runtime API
-key** using a hidden prompt.
 
 The runtime API key is never committed to Git. It is written to:
 
@@ -154,8 +153,9 @@ sudo -u chatbridge env \
 If you reuse the same OpenAI Tunnel ID, the existing tunnel-backed
 `OCI VPS MCP` app in ChatGPT does not need to be recreated.
 
-Rebuild the OCI instance, run the two bootstrap commands, enter a valid runtime
-API key, and the tunnel should reconnect to the same OpenAI-hosted tunnel.
+Rebuild the OCI instance, run the two bootstrap commands, enter the same Tunnel
+ID and a valid runtime API key, and the tunnel should reconnect to the same
+OpenAI-hosted tunnel.
 
 ## Security model
 
