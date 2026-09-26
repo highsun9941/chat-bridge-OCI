@@ -45,7 +45,10 @@ After bootstrap:
 - workspace is `/home/ubuntu/projects/chatgptweb`.
 - `chatbridge` has full read/write/execute access inside that workspace.
 - `ubuntu` and `chatbridge` share the `chatgptweb` group so the Ubuntu-side dashboard can browse the same files.
-- all MCP tools are available and `run_command` has no executable blocklist.
+- the public MCP surface exposes exactly `run_command` and `toolbox`.
+- specialized file/workspace/Git operations live inside the toolbox catalog and
+  are discovered with `search / list / call`.
+- `run_command` has no executable blocklist.
 - persistent filesystem writes from the MCP service are confined to the workspace.
 - MCP binds only to `127.0.0.1:8000`.
 - tunnel health is available only on loopback at `127.0.0.1:8080`.
@@ -69,14 +72,13 @@ curl -fsS http://127.0.0.1:8080/readyz
 
 The MCP smoke test should expose exactly these tools:
 
-- workspace_info
-- list_files
-- read_file
-- write_file
-- replace_text
-- git_status
-- git_diff
-- run_command
+- `run_command`
+- `toolbox`
+
+The toolbox internally contains the specialized workspace, filesystem, and Git
+operations. Use `toolbox(action="search", query="...")` to discover a relevant
+operation, `toolbox(action="list", category="...")` to browse one category,
+and `toolbox(action="call", tool="...", arguments={...})` to execute it.
 
 Manual smoke test:
 
