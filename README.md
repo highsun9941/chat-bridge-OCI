@@ -93,7 +93,13 @@ The bridge exposes eight tools:
 - `git_diff`
 - `run_command`
 
-File tools are constrained to the configured workspace.
+The bridge uses a **full-access workspace sandbox**:
+
+- all eight MCP tools are available;
+- `run_command` has no executable blocklist;
+- any executable available to the `chatbridge` service account can be invoked;
+- the service stays non-root;
+- persistent filesystem writes are confined by systemd to `WORKSPACE_ROOT`.
 
 The default workspace after bootstrap is:
 
@@ -149,11 +155,15 @@ API key, and the tunnel should reconnect to the same OpenAI-hosted tunnel.
 - Secure MCP Tunnel makes outbound HTTPS connections to OpenAI.
 - `chatbridge` and `tunnelclient` are separate non-root users.
 - Neither account is added to sudoers by the bootstrap script.
-- systemd units use `NoNewPrivileges`, empty capability sets, filesystem
-  protection, and dedicated writable paths.
-- Tunnel credentials live outside the repository.
+- `chatbridge` has full read/write/execute access inside
+  `/var/lib/chat-bridge/workspace`.
+- `run_command` intentionally has no executable blocklist.
+- systemd `ProtectSystem=strict` plus `ReadWritePaths` confines persistent
+  writes to the workspace; HOME, TMPDIR, and cache directories are also placed
+  below the workspace.
+- `NoNewPrivileges` and an empty capability set prevent privilege escalation.
+- Tunnel credentials live outside the MCP service and repository.
 - Child commands receive a reduced environment.
-- `run_command` is still powerful: Linux permissions remain the final security boundary.
 
 Do not expose TCP 8000 publicly and do not commit runtime keys.
 
