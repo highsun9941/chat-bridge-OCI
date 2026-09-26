@@ -2,65 +2,68 @@
 
 ## Purpose
 
-This repository is a minimal MCP coding bridge intended to run on an Oracle
-Cloud Infrastructure VPS and be connected to ChatGPT as a private personal
-plugin.
+This repository provides a private MCP coding bridge from ChatGPT to an OCI VPS.
 
-If the user asks you to install or operate this repository on the VPS, follow
-this runbook.
+For a fresh Ubuntu/Debian OCI installation, **use `bootstrap.sh` as the
+canonical path**. Do not manually reproduce all setup steps unless bootstrap
+fails and you are diagnosing the failure.
 
-## Desired end state
+## Fresh installation
 
-- The MCP server runs as a **non-root** Linux user.
-- `WORKSPACE_ROOT` points to the directory containing repositories ChatGPT may edit.
-- The MCP listener binds only to `127.0.0.1:8000`.
-- OCI firewall / Security List / NSG does **not** expose TCP 8000.
-- ChatGPT reaches the server through OpenAI Secure MCP Tunnel.
-- No OpenAI API key, tunnel runtime key, SSH key, or other secret is committed
-  to this repository.
-
-## Install
-
-From the repository checkout:
+From the user's clone:
 
 ```bash
-bash install.sh
+bash chat-bridge-OCI/bootstrap.sh
 ```
 
-By default this creates:
+If already inside the repository:
+
+```bash
+bash bootstrap.sh
+```
+
+The script will request the OpenAI Secure MCP Tunnel runtime API key through a
+hidden TTY prompt. Never echo that key, put it into a command line, source file,
+issue, log message, or Git commit.
+
+The default tunnel ID is:
 
 ```text
-./.venv
-$HOME/chat-bridge-workspace
+tunnel_6ab6752e2e9c8191b323f8ad2626d3ed
 ```
 
-To use another workspace:
+Only use `OPENAI_TUNNEL_ID=...` when the user explicitly wants another tunnel.
+
+## Expected end state
+
+After bootstrap:
+
+- `chat-bridge-oci.service` is enabled and active.
+- `chat-bridge-oci-tunnel.service` is enabled and active.
+- MCP runs as non-root user `chatbridge`.
+- tunnel-client runs as non-root user `tunnelclient`.
+- workspace is `/var/lib/chat-bridge/workspace`.
+- MCP binds only to `127.0.0.1:8000`.
+- tunnel health is available only on loopback at `127.0.0.1:8080`.
+- no inbound OCI firewall/NSG rule is needed for port 8000.
+- runtime credentials are stored at
+  `/etc/chat-bridge-oci-tunnel/tunnel.env`, outside Git.
+- the existing ChatGPT tunnel-backed app can reconnect through the same tunnel.
+
+## Verification
+
+Run:
 
 ```bash
-WORKSPACE_ROOT=/srv/chat-bridge-workspace bash install.sh
+systemctl is-active chat-bridge-oci.service
+systemctl is-enabled chat-bridge-oci.service
+systemctl is-active chat-bridge-oci-tunnel.service
+systemctl is-enabled chat-bridge-oci-tunnel.service
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/readyz
 ```
 
-If the intended project already exists elsewhere, either set `WORKSPACE_ROOT`
-to its parent directory or move/clone the project below the configured workspace.
-
-## Start and verify
-
-Start the service locally:
-
-```bash
-WORKSPACE_ROOT="$HOME/chat-bridge-workspace" \
-MCP_HOST=127.0.0.1 \
-MCP_PORT=8000 \
-.venv/bin/chat-bridge-oci
-```
-
-In a second shell:
-
-```bash
-MCP_URL=http://127.0.0.1:8000/mcp .venv/bin/python smoke_test.py
-```
-
-The smoke test should list:
+The MCP smoke test should expose exactly these tools:
 
 - workspace_info
 - list_files
@@ -71,62 +74,68 @@ The smoke test should list:
 - git_diff
 - run_command
 
-## Persistence
+Manual smoke test:
 
-After the smoke test passes, run the same command under the host's normal
-service manager (systemd is preferred on OCI Linux/Ubuntu).
-
-The service account must:
-
-1. not be root;
-2. not have passwordless sudo;
-3. have read/write permission only to the intended coding workspace and normal
-   language/tool caches it needs;
-4. receive no unnecessary secrets in its environment.
-
-Do not weaken filesystem permissions merely to make the bridge work.
-
-## ChatGPT connection
-
-Preferred connection method: **OpenAI Secure MCP Tunnel**.
-
-Do not make this server public just to connect ChatGPT.
-
-When the user has created a tunnel in OpenAI Platform and supplied the required
-tunnel configuration securely, run `tunnel-client` on this VPS and point its
-MCP server URL to:
-
-```text
-http://127.0.0.1:8000/mcp
+```bash
+sudo -u chatbridge env \
+  HOME=/var/lib/chatbridge \
+  MCP_URL=http://127.0.0.1:8000/mcp \
+  /opt/chat-bridge-OCI/.venv/bin/python \
+  /opt/chat-bridge-OCI/smoke_test.py
 ```
 
-Keep the tunnel client and MCP server running as services after validation.
+## Coding workspace
 
-The user then creates a developer-mode ChatGPT plugin using **Connection:
-Tunnel** and selects that tunnel. A useful display name is `VPS`.
+Only repositories below this directory are intended for ChatGPT coding work:
 
-## Safety notes
+```text
+/var/lib/chat-bridge/workspace
+```
 
-`run_command` intentionally uses `shell=False` and blocks obvious host
-administration commands, but it is still a powerful coding primitive. Treat the
-Linux service account's permissions as the real security boundary.
+Put projects under that root rather than weakening the path checks.
+
+## Safety requirements
 
 Do not:
 
-- run the MCP service as root;
-- add the service account to sudoers;
-- bind to `0.0.0.0` unless the user intentionally replaces the tunnel design
-  with a properly authenticated public MCP deployment;
-- paste secrets into source files or commits;
-- disable the workspace path checks.
+- run either service as root;
+- add `chatbridge` or `tunnelclient` to sudoers;
+- expose TCP 8000 or the tunnel health listener publicly;
+- bind MCP to `0.0.0.0`;
+- commit tunnel/API credentials;
+- print credentials while troubleshooting;
+- disable workspace path validation or systemd hardening merely to make a test pass.
 
-## Upgrade
+`run_command` is a powerful coding primitive. The dedicated Linux account's
+filesystem and OS permissions are the real security boundary.
 
-For a later repository update:
+## Troubleshooting
+
+If MCP fails:
+
+```bash
+journalctl -u chat-bridge-oci.service -n 100 --no-pager
+```
+
+If the tunnel fails:
+
+```bash
+journalctl -u chat-bridge-oci-tunnel.service -n 150 --no-pager
+curl -v http://127.0.0.1:8080/healthz
+curl -v http://127.0.0.1:8080/readyz
+```
+
+Do not include the contents of `/etc/chat-bridge-oci-tunnel/tunnel.env` in a
+report.
+
+## Updates
+
+For a normal update:
 
 ```bash
 git pull --ff-only
-.venv/bin/pip install -e .
+bash bootstrap.sh
 ```
 
-Then restart the MCP service and rerun `smoke_test.py`.
+Re-running bootstrap should be preferred over hand-editing the generated
+systemd units.
