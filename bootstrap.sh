@@ -2,10 +2,8 @@
 set -Eeuo pipefail
 
 INSTALL_DIR="/opt/chat-bridge-OCI"
-WORKSPACE_ROOT="/home/ubuntu/projects/chatgptweb"
-CHATBRIDGE_HOME="/var/lib/chatbridge"
+AGENT_WORKDIR="/home/ubuntu/projects/chatgptweb"
 TUNNEL_HOME="/var/lib/tunnel-client"
-WORKSPACE_GROUP="chatgptweb"
 TUNNEL_ENV_DIR="/etc/chat-bridge-oci-tunnel"
 TUNNEL_ENV_FILE="$TUNNEL_ENV_DIR/tunnel.env"
 MCP_URL="http://127.0.0.1:8000/mcp"
@@ -55,29 +53,18 @@ if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
 fi
 chown -R root:root "$INSTALL_DIR"
 
-log "Creating dedicated service users and workspace"
-if ! id -u chatbridge >/dev/null 2>&1; then
-  useradd --system --create-home --home-dir "$CHATBRIDGE_HOME" --shell /usr/sbin/nologin chatbridge
+log "Creating default agent work directory"
+if id -u ubuntu >/dev/null 2>&1; then
+  install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/projects
+  install -d -o ubuntu -g ubuntu -m 0775 "$AGENT_WORKDIR"
+else
+  install -d -o root -g root -m 0755 "$AGENT_WORKDIR"
 fi
+
+log "Creating tunnel service user"
 if ! id -u tunnelclient >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$TUNNEL_HOME" --shell /usr/sbin/nologin tunnelclient
 fi
-if ! getent group "$WORKSPACE_GROUP" >/dev/null 2>&1; then
-  groupadd --system "$WORKSPACE_GROUP"
-fi
-usermod -a -G "$WORKSPACE_GROUP" chatbridge
-if id -u ubuntu >/dev/null 2>&1; then
-  usermod -a -G "$WORKSPACE_GROUP" ubuntu
-  install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/projects
-  install -d -o ubuntu -g "$WORKSPACE_GROUP" -m 2770 "$WORKSPACE_ROOT"
-else
-  install -d -o chatbridge -g "$WORKSPACE_GROUP" -m 2770 "$WORKSPACE_ROOT"
-fi
-install -d -o chatbridge -g "$WORKSPACE_GROUP" -m 2770 \
-  "$WORKSPACE_ROOT/.home" \
-  "$WORKSPACE_ROOT/.tmp" \
-  "$WORKSPACE_ROOT/.cache"
-install -d -o chatbridge -g chatbridge -m 0750 "$CHATBRIDGE_HOME"
 install -d -o tunnelclient -g tunnelclient -m 0750 "$TUNNEL_HOME"
 
 log "Installing MCP Python service"
@@ -136,43 +123,30 @@ TUNNEL_BIN="$(find "$TMP_DIR/tunnel-client" -type f -name tunnel-client -print -
 install -o root -g root -m 0755 "$TUNNEL_BIN" /usr/local/bin/tunnel-client
 /usr/local/bin/tunnel-client --version
 
-log "Writing MCP systemd service"
+log "Writing root OCI management MCP service"
 cat >/etc/systemd/system/chat-bridge-oci.service <<EOF_UNIT
 [Unit]
-Description=OCI ChatGPT MCP coding bridge
+Description=ChatGPT OCI instance management agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=chatbridge
-Group=chatbridge
-WorkingDirectory=$INSTALL_DIR
-Environment=WORKSPACE_ROOT=$WORKSPACE_ROOT
-Environment=HOME=$WORKSPACE_ROOT/.home
-Environment=TMPDIR=$WORKSPACE_ROOT/.tmp
-Environment=XDG_CACHE_HOME=$WORKSPACE_ROOT/.cache
+User=root
+Group=root
+WorkingDirectory=$AGENT_WORKDIR
+Environment=AGENT_WORKDIR=$AGENT_WORKDIR
+Environment=HOME=/root
+Environment=TMPDIR=/tmp
+Environment=XDG_CACHE_HOME=/root/.cache
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8000
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=PATH=$INSTALL_DIR/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=$INSTALL_DIR/.venv/bin/chat-bridge-oci
 Restart=on-failure
 RestartSec=3
-NoNewPrivileges=true
-PrivateTmp=false
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=$WORKSPACE_ROOT
-ReadOnlyPaths=/tmp /var/tmp
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-LockPersonality=true
-CapabilityBoundingSet=
-AmbientCapabilities=
-UMask=0007
+UMask=0022
 
 [Install]
 WantedBy=multi-user.target
@@ -198,7 +172,7 @@ chmod 0640 "$TUNNEL_ENV_FILE"
 
 cat >/etc/systemd/system/chat-bridge-oci-tunnel.service <<EOF_UNIT
 [Unit]
-Description=OpenAI Secure MCP Tunnel for OCI ChatGPT bridge
+Description=OpenAI Secure MCP Tunnel for ChatGPT OCI management agent
 Requires=chat-bridge-oci.service
 After=network-online.target chat-bridge-oci.service
 Wants=network-online.target
@@ -232,12 +206,12 @@ EOF_UNIT
 
 unset RUNTIME_KEY CONTROL_PLANE_API_KEY
 
-log "Starting services"
+log "Starting root management agent"
 systemctl daemon-reload
 systemctl enable --now chat-bridge-oci.service
 
 for _ in {1..30}; do
-  if runuser -u chatbridge -- env HOME="$WORKSPACE_ROOT/.home" TMPDIR="$WORKSPACE_ROOT/.tmp" MCP_URL="$MCP_URL" \
+  if env HOME=/root AGENT_WORKDIR="$AGENT_WORKDIR" MCP_URL="$MCP_URL" \
       "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/smoke_test.py" >/tmp/chat-bridge-smoke.out 2>/tmp/chat-bridge-smoke.err; then
     break
   fi
@@ -273,12 +247,12 @@ curl -fsS "$HEALTH_URL/readyz" >/dev/null
 
 log "Setup complete"
 printf '%s\n' \
-  "MCP service:      $(systemctl is-active chat-bridge-oci.service) / $(systemctl is-enabled chat-bridge-oci.service)" \
+  "Agent service:    $(systemctl is-active chat-bridge-oci.service) / $(systemctl is-enabled chat-bridge-oci.service)" \
   "Tunnel service:   $(systemctl is-active chat-bridge-oci-tunnel.service) / $(systemctl is-enabled chat-bridge-oci-tunnel.service)" \
+  "Agent privilege:  root" \
   "Tunnel ID:        $TUNNEL_ID" \
-  "Workspace:        $WORKSPACE_ROOT" \
+  "Default workdir:  $AGENT_WORKDIR" \
   "Local MCP:        $MCP_URL" \
   "Tunnel health:    $HEALTH_URL/readyz" \
   "" \
-  "Your existing ChatGPT tunnel-backed OCI VPS MCP app should reconnect automatically." \
-  "No inbound port 8000 rule is needed or recommended."
+  "The MCP endpoint remains loopback-only. Do not open inbound TCP 8000."
