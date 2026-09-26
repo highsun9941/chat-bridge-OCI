@@ -89,49 +89,27 @@ It automatically:
 
 Both services are enabled for boot.
 
-## MCP tools
+## MCP tool
 
-The MCP surface intentionally exposes only **two tools**:
+The MCP surface intentionally exposes exactly **one tool**:
 
 - `run_command` — run arbitrary argv-style commands inside the workspace.
-- `toolbox` — discover and call specialized internal tools on demand.
 
-The specialized tools are not exposed directly to ChatGPT. They live inside the
-toolbox catalog and are discovered with a `search / list / call` flow.
-
-Current internal toolbox catalog:
-
-- `workspace_info`
-- `list_files`
-- `read_file`
-- `write_file`
-- `replace_text`
-- `git_status`
-- `git_diff`
-
-Typical flow:
+There are no separate file, Git, or toolbox tools. ChatGPT uses ordinary CLI
+programs through `run_command`, for example:
 
 ```text
-toolbox(action="search", query="read a file")
-        ↓
-returns only relevant matching tools
-        ↓
-toolbox(
-  action="call",
-  tool="read_file",
-  arguments={"path": "project/README.md"}
-)
+["git", "status"]
+["cat", "README.md"]
+["find", ".", "-maxdepth", "2", "-type", "f"]
+["bash", "-lc", "grep -R --line-number TODO . | head"]
 ```
-
-`toolbox(action="list")` returns only categories and counts. Supplying a
-category returns the tools in that category, so the design remains usable even
-if the internal catalog later grows to dozens or hundreds of tools.
 
 The bridge uses a **full-access workspace sandbox**:
 
 - `run_command` has no executable blocklist;
-- toolbox write operations still enforce the workspace path boundary;
 - any executable available to the `chatbridge` service account can be invoked;
+- commands start in a workspace-relative working directory;
 - the service stays non-root;
 - persistent filesystem writes are confined by systemd to `WORKSPACE_ROOT`.
 
