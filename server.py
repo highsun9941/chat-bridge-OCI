@@ -8,17 +8,20 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-ROOT = Path(
-    os.environ.get("WORKSPACE_ROOT", "/home/ubuntu/projects/chatgptweb")
+DEFAULT_WORKDIR = Path(
+    os.environ.get(
+        "AGENT_WORKDIR",
+        os.environ.get("WORKSPACE_ROOT", "/home/ubuntu/projects/chatgptweb"),
+    )
 ).expanduser().resolve()
 HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MCP_PORT", "8000"))
 MAX_COMMAND_OUTPUT = int(os.environ.get("MAX_COMMAND_OUTPUT", "200000"))
 MAX_COMMAND_TIMEOUT = int(os.environ.get("MAX_COMMAND_TIMEOUT", "600"))
 
-ROOT.mkdir(parents=True, exist_ok=True)
+DEFAULT_WORKDIR.mkdir(parents=True, exist_ok=True)
 
-mcp = MCPServer("OCI VPS Coding Bridge")
+mcp = MCPServer("OCI Instance Management Agent")
 
 COMMAND = ToolAnnotations(
     read_only_hint=False,
@@ -43,24 +46,18 @@ SAFE_ENV_KEYS = {
 }
 
 
-def _resolve_path(raw_path: str) -> Path:
+def _resolve_cwd(raw_path: str) -> Path:
     if not raw_path:
-        raise ValueError("path must not be empty")
+        return DEFAULT_WORKDIR
 
     path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        raise ValueError("use a path relative to WORKSPACE_ROOT")
+    if not path.is_absolute():
+        path = DEFAULT_WORKDIR / path
 
-    resolved = (ROOT / path).resolve()
-    if resolved != ROOT and ROOT not in resolved.parents:
-        raise ValueError("path escapes WORKSPACE_ROOT")
+    resolved = path.resolve()
+    if not resolved.exists() or not resolved.is_dir():
+        raise ValueError(f"cwd is not a directory: {resolved}")
     return resolved
-
-
-def _relative(path: Path) -> str:
-    if path == ROOT:
-        return "."
-    return path.relative_to(ROOT).as_posix()
 
 
 def _safe_child_env() -> dict[str, str]:
@@ -80,10 +77,7 @@ def _run(argv: list[str], cwd: str, timeout_seconds: int) -> dict[str, Any]:
     if not argv or not all(isinstance(item, str) and item for item in argv):
         raise ValueError("argv must be a non-empty list of non-empty strings")
 
-    workdir = _resolve_path(cwd)
-    if not workdir.exists() or not workdir.is_dir():
-        raise ValueError(f"cwd is not a directory: {_relative(workdir)}")
-
+    workdir = _resolve_cwd(cwd)
     timeout = max(1, min(int(timeout_seconds), MAX_COMMAND_TIMEOUT))
 
     try:
@@ -103,7 +97,7 @@ def _run(argv: list[str], cwd: str, timeout_seconds: int) -> dict[str, Any]:
         stderr, err_truncated = _truncate(completed.stderr)
         return {
             "argv": argv,
-            "cwd": _relative(workdir),
+            "cwd": str(workdir),
             "exit_code": completed.returncode,
             "stdout": stdout,
             "stderr": stderr,
@@ -125,7 +119,7 @@ def _run(argv: list[str], cwd: str, timeout_seconds: int) -> dict[str, Any]:
         stderr, err_truncated = _truncate(stderr)
         return {
             "argv": argv,
-            "cwd": _relative(workdir),
+            "cwd": str(workdir),
             "exit_code": None,
             "stdout": stdout,
             "stderr": stderr,
@@ -140,14 +134,17 @@ def run_command(
     cwd: str = ".",
     timeout_seconds: int = 120,
 ) -> dict[str, Any]:
-    """Run an arbitrary argv-style command inside the workspace.
+    """Run an arbitrary argv-style command on the OCI instance.
 
-    Use argv form, for example ["pytest", "-q"], ["git", "status"], or
-    ["bash", "-lc", "find . -maxdepth 2 -type f | sort"].
+    The service is intentionally designed to run as root for full instance
+    administration. The default working directory is AGENT_WORKDIR
+    (/home/ubuntu/projects/chatgptweb by default), but cwd may also be an
+    absolute system path such as /etc, /var, /opt, or /root.
 
-    Any executable available to the service account may be invoked. The
-    systemd sandbox is the security boundary: persistent writes are confined
-    to WORKSPACE_ROOT while the service remains non-root.
+    Use argv form, for example:
+    ["systemctl", "status", "docker"]
+    ["journalctl", "-u", "hermes-desktop.service", "-n", "200", "--no-pager"]
+    ["bash", "-lc", "apt-get update && apt-get install -y tailscale"]
     """
     return _run(argv, cwd, timeout_seconds)
 
