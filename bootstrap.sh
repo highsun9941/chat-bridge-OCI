@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DEFAULT_TUNNEL_ID="tunnel_6ab6752e2e9c8191b323f8ad2626d3ed"
+INSTALL_DIR="/opt/chat-bridge-OCI"
+WORKSPACE_ROOT="/var/lib/chat-bridge/workspace"
+CHATBRIDGE_HOME="/var/lib/chatbridge"
+TUNNEL_HOME="/var/lib/tunnel-client"
+TUNNEL_ENV_DIR="/etc/chat-bridge-oci-tunnel"
+TUNNEL_ENV_FILE="$TUNNEL_ENV_DIR/tunnel.env"
+MCP_URL="http://127.0.0.1:8000/mcp"
+HEALTH_URL="http://127.0.0.1:8080"
+
+log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+  command -v sudo >/dev/null 2>&1 || die "sudo is required when not running as root"
+  exec sudo -E bash "$0" "$@"
+fi
+
+command -v apt-get >/dev/null 2>&1 || die "This bootstrap currently supports Ubuntu/Debian images (apt-get required)."
+
+TUNNEL_ID="${OPENAI_TUNNEL_ID:-$DEFAULT_TUNNEL_ID}"
+[[ "$TUNNEL_ID" =~ ^tunnel_[0-9a-f]{32}$ ]] || die "Invalid tunnel id: $TUNNEL_ID"
+
+RUNTIME_KEY="${CONTROL_PLANE_API_KEY:-}"
+if [[ -z "$RUNTIME_KEY" ]]; then
+  [[ -r /dev/tty ]] || die "No TTY available. Set CONTROL_PLANE_API_KEY securely and re-run."
+  printf 'OpenAI tunnel runtime API key (hidden): ' >/dev/tty
+  IFS= read -r -s RUNTIME_KEY </dev/tty
+  printf '\n' >/dev/tty
+fi
+[[ -n "$RUNTIME_KEY" ]] || die "Runtime API key must not be empty"
+[[ "$RUNTIME_KEY" != *$'\n'* && "$RUNTIME_KEY" != *$'\r'* ]] || die "Runtime API key contains an invalid newline"
+
+log "Installing OS dependencies"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y --no-install-recommends \
+  ca-certificates curl unzip python3 python3-venv python3-pip git util-linux
+
+log "Installing repository into $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
+  find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  cp -a "$SCRIPT_DIR"/. "$INSTALL_DIR"/
+fi
+chown -R root:root "$INSTALL_DIR"
+
+log "Creating dedicated service users and workspace"
+if ! id -u chatbridge >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir "$CHATBRIDGE_HOME" --shell /usr/sbin/nologin chatbridge
+fi
+if ! id -u tunnelclient >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir "$TUNNEL_HOME" --shell /usr/sbin/nologin tunnelclient
+fi
+install -d -o chatbridge -g chatbridge -m 0750 "$WORKSPACE_ROOT"
+install -d -o chatbridge -g chatbridge -m 0750 "$CHATBRIDGE_HOME"
+install -d -o tunnelclient -g tunnelclient -m 0750 "$TUNNEL_HOME"
+
+log "Installing MCP Python service"
+rm -rf "$INSTALL_DIR/.venv"
+python3 -m venv "$INSTALL_DIR/.venv"
+"$INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip
+"$INSTALL_DIR/.venv/bin/pip" install -e "$INSTALL_DIR"
+chown -R root:root "$INSTALL_DIR/.venv"
+
+log "Installing latest official OpenAI tunnel-client"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"; unset RUNTIME_KEY CONTROL_PLANE_API_KEY' EXIT
+RELEASE_JSON="$TMP_DIR/release.json"
+curl -fsSL \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  https://api.github.com/repos/openai/tunnel-client/releases/latest \
+  -o "$RELEASE_JSON"
+
+TAG="$(python3 - "$RELEASE_JSON" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as f:
+    print(json.load(f)['tag_name'])
+PY
+)"
+
+case "$(uname -m)" in
+  x86_64|amd64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) die "Unsupported CPU architecture: $(uname -m)" ;;
+esac
+
+ASSET="tunnel-client-${TAG}-linux-${ARCH}.zip"
+read -r ASSET_URL ASSET_DIGEST < <(python3 - "$RELEASE_JSON" "$ASSET" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as f:
+    release = json.load(f)
+name = sys.argv[2]
+for asset in release.get('assets', []):
+    if asset.get('name') == name:
+        print(asset['browser_download_url'], asset.get('digest', ''))
+        break
+else:
+    raise SystemExit(f'asset not found: {name}')
+PY
+)
+
+ARCHIVE="$TMP_DIR/$ASSET"
+curl -fL "$ASSET_URL" -o "$ARCHIVE"
+if [[ "$ASSET_DIGEST" == sha256:* ]]; then
+  printf '%s  %s\n' "${ASSET_DIGEST#sha256:}" "$ARCHIVE" | sha256sum -c -
+fi
+unzip -q "$ARCHIVE" -d "$TMP_DIR/tunnel-client"
+TUNNEL_BIN="$(find "$TMP_DIR/tunnel-client" -type f -name tunnel-client -print -quit)"
+[[ -n "$TUNNEL_BIN" ]] || die "tunnel-client binary not found in $ASSET"
+install -o root -g root -m 0755 "$TUNNEL_BIN" /usr/local/bin/tunnel-client
+/usr/local/bin/tunnel-client --version
+
+log "Writing MCP systemd service"
+cat >/etc/systemd/system/chat-bridge-oci.service <<EOF_UNIT
+[Unit]
+Description=OCI ChatGPT MCP coding bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chatbridge
+Group=chatbridge
+WorkingDirectory=$INSTALL_DIR
+Environment=WORKSPACE_ROOT=$WORKSPACE_ROOT
+Environment=MCP_HOST=127.0.0.1
+Environment=MCP_PORT=8000
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PATH=$INSTALL_DIR/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$INSTALL_DIR/.venv/bin/chat-bridge-oci
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$WORKSPACE_ROOT $CHATBRIDGE_HOME
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+
+log "Writing tunnel credentials and systemd service"
+install -d -o root -g tunnelclient -m 0750 "$TUNNEL_ENV_DIR"
+quote_env() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+umask 077
+{
+  printf 'CONTROL_PLANE_API_KEY=%s\n' "$(quote_env "$RUNTIME_KEY")"
+  printf 'CONTROL_PLANE_TUNNEL_ID=%s\n' "$(quote_env "$TUNNEL_ID")"
+  printf 'MCP_SERVER_URL=%s\n' "$(quote_env "$MCP_URL")"
+  printf 'HEALTH_LISTEN_ADDR=%s\n' "$(quote_env '127.0.0.1:8080')"
+} >"$TUNNEL_ENV_FILE"
+chown root:tunnelclient "$TUNNEL_ENV_FILE"
+chmod 0640 "$TUNNEL_ENV_FILE"
+
+cat >/etc/systemd/system/chat-bridge-oci-tunnel.service <<EOF_UNIT
+[Unit]
+Description=OpenAI Secure MCP Tunnel for OCI ChatGPT bridge
+Requires=chat-bridge-oci.service
+After=network-online.target chat-bridge-oci.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tunnelclient
+Group=tunnelclient
+EnvironmentFile=$TUNNEL_ENV_FILE
+ExecStart=/usr/local/bin/tunnel-client run --log.level=info --log.format=struct-text
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$TUNNEL_HOME
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+EOF_UNIT
+
+unset RUNTIME_KEY CONTROL_PLANE_API_KEY
+
+log "Starting services"
+systemctl daemon-reload
+systemctl enable --now chat-bridge-oci.service
+
+for _ in {1..30}; do
+  if runuser -u chatbridge -- env HOME="$CHATBRIDGE_HOME" MCP_URL="$MCP_URL" \
+      "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/smoke_test.py" >/tmp/chat-bridge-smoke.out 2>/tmp/chat-bridge-smoke.err; then
+    break
+  fi
+  sleep 1
+done
+if ! grep -q 'workspace_info' /tmp/chat-bridge-smoke.out 2>/dev/null; then
+  cat /tmp/chat-bridge-smoke.err >&2 || true
+  journalctl -u chat-bridge-oci.service -n 80 --no-pager >&2 || true
+  die "MCP smoke test failed"
+fi
+cat /tmp/chat-bridge-smoke.out
+rm -f /tmp/chat-bridge-smoke.out /tmp/chat-bridge-smoke.err
+
+systemctl enable --now chat-bridge-oci-tunnel.service
+
+log "Waiting for Secure MCP Tunnel readiness"
+READY=0
+for _ in {1..45}; do
+  if curl -fsS "$HEALTH_URL/readyz" >/dev/null 2>&1; then
+    READY=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ "$READY" -ne 1 ]]; then
+  journalctl -u chat-bridge-oci-tunnel.service -n 120 --no-pager >&2 || true
+  die "Tunnel did not become ready within 45 seconds"
+fi
+
+curl -fsS "$HEALTH_URL/healthz" >/dev/null
+curl -fsS "$HEALTH_URL/readyz" >/dev/null
+
+log "Setup complete"
+printf '%s\n' \
+  "MCP service:      $(systemctl is-active chat-bridge-oci.service) / $(systemctl is-enabled chat-bridge-oci.service)" \
+  "Tunnel service:   $(systemctl is-active chat-bridge-oci-tunnel.service) / $(systemctl is-enabled chat-bridge-oci-tunnel.service)" \
+  "Tunnel ID:        $TUNNEL_ID" \
+  "Workspace:        $WORKSPACE_ROOT" \
+  "Local MCP:        $MCP_URL" \
+  "Tunnel health:    $HEALTH_URL/readyz" \
+  "" \
+  "Your existing ChatGPT tunnel-backed OCI VPS MCP app should reconnect automatically." \
+  "No inbound port 8000 rule is needed or recommended."
