@@ -38,34 +38,6 @@ COMMAND = ToolAnnotations(
     open_world_hint=True,
 )
 
-BLOCKED_EXECUTABLES = {
-    "sudo",
-    "su",
-    "doas",
-    "systemctl",
-    "service",
-    "mount",
-    "umount",
-    "shutdown",
-    "reboot",
-    "poweroff",
-    "halt",
-    "useradd",
-    "userdel",
-    "usermod",
-    "groupadd",
-    "groupdel",
-    "passwd",
-    "chown",
-    "chgrp",
-    "iptables",
-    "nft",
-    "ufw",
-    "kill",
-    "killall",
-    "pkill",
-}
-
 SAFE_ENV_KEYS = {
     "PATH",
     "HOME",
@@ -138,10 +110,6 @@ def _run(argv: list[str], cwd: str, timeout_seconds: int) -> dict[str, Any]:
     if not argv or not all(isinstance(item, str) and item for item in argv):
         raise ValueError("argv must be a non-empty list of non-empty strings")
 
-    executable = Path(argv[0]).name
-    if executable in BLOCKED_EXECUTABLES:
-        raise ValueError(f"blocked executable: {executable}")
-
     workdir = _resolve_path(cwd)
     if not workdir.exists() or not workdir.is_dir():
         raise ValueError(f"cwd is not a directory: {_relative(workdir)}")
@@ -205,6 +173,8 @@ def workspace_info() -> dict[str, Any]:
         "max_write_bytes": MAX_WRITE_BYTES,
         "max_command_output_chars": MAX_COMMAND_OUTPUT,
         "max_command_timeout_seconds": MAX_COMMAND_TIMEOUT,
+        "command_policy": "all executables available to the service account are allowed",
+        "persistent_write_scope": str(ROOT),
     }
 
 
@@ -370,8 +340,9 @@ def run_command(
     """Run a command without a shell in the workspace.
 
     Use argv form, for example ["pytest", "-q"] or ["npm", "test"].
-    The service must run as a non-root Linux user; Linux permissions are the
-    final security boundary.
+    Any executable available to the service account may be invoked. The
+    systemd sandbox is the security boundary: persistent writes are confined
+    to WORKSPACE_ROOT while the service remains non-root.
     """
     return _run(argv, cwd, timeout_seconds)
 
