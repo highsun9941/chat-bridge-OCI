@@ -52,7 +52,8 @@ Use this only on an instance you are comfortable administering through ChatGPT. 
 
 ## Fresh OCI installation
 
-On a fresh **Ubuntu/Debian OCI instance**:
+On a fresh **Ubuntu 24.04+ or Debian 12+ OCI instance** (Python 3.11+, systemd,
+and `git` available; use the `ubuntu` account with sudo or root):
 
 ```bash
 git clone https://github.com/highsun9941/chat-bridge-OCI.git
@@ -60,6 +61,11 @@ bash chat-bridge-OCI/bootstrap.sh
 ```
 
 The installer will ask for two values.
+
+These are the four installation inputs: the two commands above, your **Tunnel
+ID**, and your **runtime API key**. No separate `sudo` command is needed;
+bootstrap elevates itself. Oracle Linux images are not supported by this
+apt-based installer.
 
 First, create or open your Secure MCP Tunnel:
 
@@ -72,6 +78,10 @@ tunnel_6ab...
 ```
 
 Then obtain the runtime API key associated with your tunnel setup.
+
+This installs the instance side of the connection. The tunnel must already
+exist, and using it from ChatGPT also requires a tunnel-backed app configured
+in ChatGPT.
 
 When `bootstrap.sh` starts:
 
@@ -103,10 +113,14 @@ The installer:
 7. installs `chat-bridge-oci.service` as a **root** systemd service;
 8. installs the tunnel as a separate non-root `tunnelclient` service;
 9. binds MCP only to `127.0.0.1:8000/mcp`;
-10. runs the MCP smoke test;
+10. restarts the services to apply the installed code and configuration, even on a re-install;
 11. waits for the tunnel readiness endpoint before reporting success.
 
-Both services are enabled at boot.
+Both services are enabled at boot. On every MCP start, an `ExecStartPost` check
+waits up to 60 seconds for an MCP connection and exactly the `run_command` tool.
+The tunnel's `After=`/`Requires=` dependencies wait for that check to succeed,
+so a slow MCP startup cannot race OAuth discovery. The tunnel also sets
+`MCP_STARTUP_WAIT_TIMEOUT=60s` using the official client's startup wait option.
 
 ## MCP surface
 
@@ -195,7 +209,17 @@ git pull --ff-only
 sudo bash bootstrap.sh
 ```
 
-Re-running bootstrap refreshes the installed source, Python environment, tunnel-client binary, systemd units, and health checks.
+Re-running bootstrap refreshes the installed source, Python environment,
+tunnel-client binary, systemd units, and health checks. It asks for the Tunnel
+ID and runtime key again (or accepts `OPENAI_TUNNEL_ID` and
+`CONTROL_PLANE_API_KEY` from a securely supplied environment). It stops the
+tunnel, restarts MCP and waits for its protocol check, then restarts the tunnel
+with the new configuration. Expect a brief interruption while updating.
+
+An older local `10-startup-race.conf` workaround is no longer needed for a
+fresh installation. Bootstrap preserves existing local systemd drop-ins;
+inspect them with `systemctl cat chat-bridge-oci-tunnel.service` if an updated
+instance still behaves differently from a fresh install.
 
 If the same OpenAI Tunnel ID is reused, the existing ChatGPT tunnel-backed app can reconnect to the rebuilt or updated instance without recreating the app.
 

@@ -44,6 +44,8 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y --no-install-recommends \
   ca-certificates curl unzip python3 python3-venv python3-pip git util-linux
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || \
+  die "Python 3.11+ is required. Use Ubuntu 24.04+ or Debian 12+."
 
 log "Installing repository into $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
@@ -141,9 +143,13 @@ Environment=TMPDIR=/tmp
 Environment=XDG_CACHE_HOME=/root/.cache
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8000
+Environment=MCP_URL=$MCP_URL
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=$INSTALL_DIR/.venv/bin/chat-bridge-oci
+# After= dependencies wait for this MCP protocol check, including at boot.
+ExecStartPost=$INSTALL_DIR/.venv/bin/python $INSTALL_DIR/smoke_test.py --wait-seconds 60
+TimeoutStartSec=75
 Restart=on-failure
 RestartSec=3
 UMask=0022
@@ -165,6 +171,7 @@ umask 077
   printf 'CONTROL_PLANE_API_KEY=%s\n' "$(quote_env "$RUNTIME_KEY")"
   printf 'CONTROL_PLANE_TUNNEL_ID=%s\n' "$(quote_env "$TUNNEL_ID")"
   printf 'MCP_SERVER_URL=%s\n' "$(quote_env "$MCP_URL")"
+  printf 'MCP_STARTUP_WAIT_TIMEOUT=%s\n' "$(quote_env '60s')"
   printf 'HEALTH_LISTEN_ADDR=%s\n' "$(quote_env '127.0.0.1:8080')"
 } >"$TUNNEL_ENV_FILE"
 chown root:tunnelclient "$TUNNEL_ENV_FILE"
@@ -208,24 +215,16 @@ unset RUNTIME_KEY CONTROL_PLANE_API_KEY
 
 log "Starting root management agent"
 systemctl daemon-reload
-systemctl enable --now chat-bridge-oci.service
-
-for _ in {1..30}; do
-  if env HOME=/root AGENT_WORKDIR="$AGENT_WORKDIR" MCP_URL="$MCP_URL" \
-      "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/smoke_test.py" >/tmp/chat-bridge-smoke.out 2>/tmp/chat-bridge-smoke.err; then
-    break
-  fi
-  sleep 1
-done
-if ! grep -q 'run_command' /tmp/chat-bridge-smoke.out 2>/dev/null; then
-  cat /tmp/chat-bridge-smoke.err >&2 || true
+systemctl enable chat-bridge-oci.service chat-bridge-oci-tunnel.service
+# enable --now does not refresh an already active process. Stop the tunnel
+# before restarting MCP so it cannot discover the backend while it is down.
+systemctl stop chat-bridge-oci-tunnel.service
+if ! systemctl restart chat-bridge-oci.service; then
   journalctl -u chat-bridge-oci.service -n 80 --no-pager >&2 || true
-  die "MCP smoke test failed"
+  die "MCP service startup or smoke test failed"
 fi
-cat /tmp/chat-bridge-smoke.out
-rm -f /tmp/chat-bridge-smoke.out /tmp/chat-bridge-smoke.err
 
-systemctl enable --now chat-bridge-oci-tunnel.service
+systemctl restart chat-bridge-oci-tunnel.service
 
 log "Waiting for Secure MCP Tunnel readiness"
 READY=0

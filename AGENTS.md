@@ -43,7 +43,8 @@ When practical, keep normal project files owned by `ubuntu:ubuntu` so they remai
 
 ## Fresh installation
 
-From a fresh Ubuntu/Debian instance:
+From a fresh Ubuntu 24.04+ or Debian 12+ instance (Python 3.11+, systemd,
+and git available):
 
 ```bash
 git clone https://github.com/highsun9941/chat-bridge-OCI.git
@@ -129,3 +130,16 @@ sudo bash bootstrap.sh
 ```
 
 Prefer re-running bootstrap over manually editing the generated bridge/tunnel systemd units.
+
+Bootstrap must restart both services to apply updated code and environment,
+not just `enable --now` them. Every MCP start uses an `ExecStartPost` protocol
+check (up to 60 seconds) so the dependent tunnel waits for actual MCP readiness
+at boot as well as during installation. The tunnel also sets
+`MCP_STARTUP_WAIT_TIMEOUT=60s`. Keep these startup checks when changing units.
+
+Local regression checks (no root, systemd daemon, or tunnel credentials needed):
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+bash -n bootstrap.sh install.sh
+```
