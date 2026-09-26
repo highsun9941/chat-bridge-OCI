@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chat-bridge-oci"
-version = "0.1.0"
-description = "Minimal Streamable HTTP MCP coding bridge for an Oracle Cloud VPS"
+version = "0.2.0"
+description = "Root-level MCP bridge for using ChatGPT web chat as an OCI instance management agent"
 requires-python = ">=3.11"
 dependencies = [
   "mcp>=2.2,<3",
