@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository provides a private MCP coding bridge from ChatGPT to an OCI VPS.
+This repository provides a private MCP command bridge from ChatGPT to an OCI VPS.
 
 For a fresh Ubuntu/Debian OCI installation, **use `bootstrap.sh` as the
 canonical path**. Do not manually reproduce all setup steps unless bootstrap
@@ -45,9 +45,7 @@ After bootstrap:
 - workspace is `/home/ubuntu/projects/chatgptweb`.
 - `chatbridge` has full read/write/execute access inside that workspace.
 - `ubuntu` and `chatbridge` share the `chatgptweb` group so the Ubuntu-side dashboard can browse the same files.
-- the public MCP surface exposes exactly `run_command` and `toolbox`.
-- specialized file/workspace/Git operations live inside the toolbox catalog and
-  are discovered with `search / list / call`.
+- the public MCP surface exposes exactly one tool: `run_command`.
 - `run_command` has no executable blocklist.
 - persistent filesystem writes from the MCP service are confined to the workspace.
 - MCP binds only to `127.0.0.1:8000`.
@@ -70,15 +68,9 @@ curl -fsS http://127.0.0.1:8080/healthz
 curl -fsS http://127.0.0.1:8080/readyz
 ```
 
-The MCP smoke test should expose exactly these tools:
+The MCP smoke test should expose exactly one tool:
 
 - `run_command`
-- `toolbox`
-
-The toolbox internally contains the specialized workspace, filesystem, and Git
-operations. Use `toolbox(action="search", query="...")` to discover a relevant
-operation, `toolbox(action="list", category="...")` to browse one category,
-and `toolbox(action="call", tool="...", arguments={...})` to execute it.
 
 Manual smoke test:
 
