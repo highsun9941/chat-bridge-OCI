@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-$HOME/chat-bridge-workspace}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-/home/ubuntu/projects/chatgptweb}"
 
 "$PYTHON_BIN" -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
