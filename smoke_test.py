@@ -5,7 +5,7 @@ import os
 
 from mcp import Client
 
-EXPECTED_TOOLS = {"run_command", "toolbox"}
+EXPECTED_TOOLS = {"run_command"}
 
 
 async def main() -> None:
