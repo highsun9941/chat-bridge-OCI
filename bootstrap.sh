@@ -57,7 +57,11 @@ fi
 if ! id -u tunnelclient >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$TUNNEL_HOME" --shell /usr/sbin/nologin tunnelclient
 fi
-install -d -o chatbridge -g chatbridge -m 0750 "$WORKSPACE_ROOT"
+install -d -o chatbridge -g chatbridge -m 0700 "$WORKSPACE_ROOT"
+install -d -o chatbridge -g chatbridge -m 0700 \
+  "$WORKSPACE_ROOT/.home" \
+  "$WORKSPACE_ROOT/.tmp" \
+  "$WORKSPACE_ROOT/.cache"
 install -d -o chatbridge -g chatbridge -m 0750 "$CHATBRIDGE_HOME"
 install -d -o tunnelclient -g tunnelclient -m 0750 "$TUNNEL_HOME"
 
@@ -130,6 +134,9 @@ User=chatbridge
 Group=chatbridge
 WorkingDirectory=$INSTALL_DIR
 Environment=WORKSPACE_ROOT=$WORKSPACE_ROOT
+Environment=HOME=$WORKSPACE_ROOT/.home
+Environment=TMPDIR=$WORKSPACE_ROOT/.tmp
+Environment=XDG_CACHE_HOME=$WORKSPACE_ROOT/.cache
 Environment=MCP_HOST=127.0.0.1
 Environment=MCP_PORT=8000
 Environment=PYTHONDONTWRITEBYTECODE=1
@@ -138,10 +145,11 @@ ExecStart=$INSTALL_DIR/.venv/bin/chat-bridge-oci
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
-PrivateTmp=true
+PrivateTmp=false
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=$WORKSPACE_ROOT $CHATBRIDGE_HOME
+ReadWritePaths=$WORKSPACE_ROOT
+ReadOnlyPaths=/tmp /var/tmp
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -214,7 +222,7 @@ systemctl daemon-reload
 systemctl enable --now chat-bridge-oci.service
 
 for _ in {1..30}; do
-  if runuser -u chatbridge -- env HOME="$CHATBRIDGE_HOME" MCP_URL="$MCP_URL" \
+  if runuser -u chatbridge -- env HOME="$WORKSPACE_ROOT/.home" TMPDIR="$WORKSPACE_ROOT/.tmp" MCP_URL="$MCP_URL" \
       "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/smoke_test.py" >/tmp/chat-bridge-smoke.out 2>/tmp/chat-bridge-smoke.err; then
     break
   fi
