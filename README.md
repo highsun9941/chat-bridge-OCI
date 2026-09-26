@@ -22,7 +22,7 @@ OCI tunnel-client
 chat-bridge-OCI
         |
         v
-/var/lib/chat-bridge/workspace
+/home/ubuntu/projects/chatgptweb
 ```
 
 Port 8000 stays loopback-only. Do not open it in an OCI Security List or NSG.
@@ -68,7 +68,7 @@ It automatically:
 1. installs required OS packages;
 2. installs this repository to `/opt/chat-bridge-OCI`;
 3. creates the non-root `chatbridge` and `tunnelclient` service users;
-4. creates `/var/lib/chat-bridge/workspace`;
+4. creates `/home/ubuntu/projects/chatgptweb` and a shared `chatgptweb` group;
 5. creates the Python virtual environment and installs the MCP server;
 6. downloads the latest official Linux `openai/tunnel-client` release from GitHub;
 7. verifies the published SHA-256 digest when available;
@@ -104,7 +104,7 @@ The bridge uses a **full-access workspace sandbox**:
 The default workspace after bootstrap is:
 
 ```text
-/var/lib/chat-bridge/workspace
+/home/ubuntu/projects/chatgptweb
 ```
 
 Clone or copy coding projects below that directory.
@@ -113,7 +113,7 @@ Clone or copy coding projects below that directory.
 
 ```text
 /opt/chat-bridge-OCI
-/var/lib/chat-bridge/workspace
+/home/ubuntu/projects/chatgptweb
 /var/lib/chatbridge
 /var/lib/tunnel-client
 /etc/chat-bridge-oci-tunnel/tunnel.env
@@ -135,7 +135,7 @@ Run the MCP smoke test manually:
 
 ```bash
 sudo -u chatbridge env \
-  HOME=/var/lib/chatbridge \
+  HOME=/home/ubuntu/projects/chatgptweb/.home \
   MCP_URL=http://127.0.0.1:8000/mcp \
   /opt/chat-bridge-OCI/.venv/bin/python \
   /opt/chat-bridge-OCI/smoke_test.py
@@ -156,7 +156,8 @@ API key, and the tunnel should reconnect to the same OpenAI-hosted tunnel.
 - `chatbridge` and `tunnelclient` are separate non-root users.
 - Neither account is added to sudoers by the bootstrap script.
 - `chatbridge` has full read/write/execute access inside
-  `/var/lib/chat-bridge/workspace`.
+  `/home/ubuntu/projects/chatgptweb`.
+- the `ubuntu` user shares access through the `chatgptweb` group, so local dashboards can browse the same files.
 - `run_command` intentionally has no executable blocklist.
 - systemd `ProtectSystem=strict` plus `ReadWritePaths` confines persistent
   writes to the workspace; HOME, TMPDIR, and cache directories are also placed
