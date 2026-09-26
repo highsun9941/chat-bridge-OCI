@@ -8,7 +8,7 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/workspace")).expanduser().resolve()
+ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/home/ubuntu/projects/chatgptweb")).expanduser().resolve()
 HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MCP_PORT", "8000"))
 MAX_READ_BYTES = int(os.environ.get("MAX_READ_BYTES", "1048576"))
