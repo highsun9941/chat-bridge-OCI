@@ -1,133 +1,176 @@
 # chat-bridge-OCI
 
-Minimal MCP server for letting ChatGPT work on code inside an Oracle Cloud VPS.
+Minimal private MCP coding bridge for an Oracle Cloud Infrastructure (OCI) VPS.
 
-## What it exposes
-
-The server intentionally keeps the tool set small:
-
-- `workspace_info` — show the configured workspace root.
-- `list_files` — list files under the workspace.
-- `read_file` — read a UTF-8 text file with line bounds.
-- `write_file` — create or replace a UTF-8 text file.
-- `replace_text` — make a targeted text replacement.
-- `git_status` — inspect repository state.
-- `git_diff` — inspect working-tree or staged changes.
-- `run_command` — run an argv-style command in the workspace.
-
-All file paths are constrained to `WORKSPACE_ROOT`. The HTTP listener defaults to
-`127.0.0.1:8000`, so it is **not public by default**.
-
-## Recommended architecture
+The intended setup is:
 
 ```text
-ChatGPT
-   |
-   | Secure MCP Tunnel
-   v
+ChatGPT @OCI VPS MCP
+        |
+        | OpenAI Secure MCP Tunnel
+        v
 OpenAI tunnel endpoint
-   ^
-   | outbound HTTPS only
-   |
-tunnel-client on OCI
-   |
-   v
+        ^
+        | outbound HTTPS only
+        |
+OCI tunnel-client
+        |
+        v
 127.0.0.1:8000/mcp
-   |
-   v
-this MCP server
-   |
-   v
-WORKSPACE_ROOT
+        |
+        v
+chat-bridge-OCI
+        |
+        v
+/var/lib/chat-bridge/workspace
 ```
 
-For a private VPS coding bridge, keep the MCP endpoint on localhost and use
-OpenAI Secure MCP Tunnel. Do not open port 8000 in the OCI security list/NSG.
+Port 8000 stays loopback-only. Do not open it in an OCI Security List or NSG.
 
-## Quick start
+## Fresh OCI: two commands
 
-Requirements: Python 3.11+.
+On a fresh **Ubuntu/Debian OCI instance**:
 
 ```bash
 git clone https://github.com/highsun9941/chat-bridge-OCI.git
-cd chat-bridge-OCI
-
-python3 -m venv .venv
-.venv/bin/pip install -U pip
-.venv/bin/pip install -e .
-
-mkdir -p "$HOME/chat-bridge-workspace"
-
-WORKSPACE_ROOT="$HOME/chat-bridge-workspace" \
-MCP_HOST=127.0.0.1 \
-MCP_PORT=8000 \
-.venv/bin/chat-bridge-oci
+bash chat-bridge-OCI/bootstrap.sh
 ```
 
-The MCP endpoint is:
+That's the canonical install path.
+
+The script elevates itself with `sudo` when needed and asks once for the
+**OpenAI Secure MCP Tunnel runtime API key** using a hidden prompt.
+
+The default tunnel is already configured for this deployment:
 
 ```text
-http://127.0.0.1:8000/mcp
+tunnel_6ab6752e2e9c8191b323f8ad2626d3ed
 ```
 
-Test it with MCP Inspector:
+The runtime API key is never committed to Git. It is written to:
+
+```text
+/etc/chat-bridge-oci-tunnel/tunnel.env
+```
+
+with `root:tunnelclient` ownership and mode `0640`.
+
+If the tunnel ID ever changes, override it for one install:
 
 ```bash
-npx @modelcontextprotocol/inspector@latest
+OPENAI_TUNNEL_ID=tunnel_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx bash chat-bridge-OCI/bootstrap.sh
 ```
 
-Choose **Streamable HTTP** and connect to `http://127.0.0.1:8000/mcp`.
+## What bootstrap.sh does
 
-## Connect it to ChatGPT
+It automatically:
 
-Recommended: OpenAI Secure MCP Tunnel.
+1. installs required OS packages;
+2. installs this repository to `/opt/chat-bridge-OCI`;
+3. creates the non-root `chatbridge` and `tunnelclient` service users;
+4. creates `/var/lib/chat-bridge/workspace`;
+5. creates the Python virtual environment and installs the MCP server;
+6. downloads the latest official Linux `openai/tunnel-client` release from GitHub;
+7. verifies the published SHA-256 digest when available;
+8. creates and enables `chat-bridge-oci.service`;
+9. creates and enables `chat-bridge-oci-tunnel.service`;
+10. keeps the MCP endpoint on `127.0.0.1:8000/mcp`;
+11. runs the MCP smoke test;
+12. waits for the tunnel `/readyz` endpoint before reporting success.
 
-1. Create a tunnel in OpenAI Platform tunnel settings.
-2. Install/run `tunnel-client` on this VPS.
-3. Point it at `http://127.0.0.1:8000/mcp`.
-4. In ChatGPT, enable Developer mode.
-5. Open Plugins → + → Connection: **Tunnel** → choose the tunnel.
-6. Name the resulting personal plugin something like `VPS`.
+Both services are enabled for boot.
 
-Do **not** commit the tunnel runtime API key or any other secret to this repo.
+## MCP tools
 
-See `AGENTS.md` for an installation checklist intended for a coding agent.
+The bridge exposes eight tools:
+
+- `workspace_info`
+- `list_files`
+- `read_file`
+- `write_file`
+- `replace_text`
+- `git_status`
+- `git_diff`
+- `run_command`
+
+File tools are constrained to the configured workspace.
+
+The default workspace after bootstrap is:
+
+```text
+/var/lib/chat-bridge/workspace
+```
+
+Clone or copy coding projects below that directory.
+
+## Service layout
+
+```text
+/opt/chat-bridge-OCI
+/var/lib/chat-bridge/workspace
+/var/lib/chatbridge
+/var/lib/tunnel-client
+/etc/chat-bridge-oci-tunnel/tunnel.env
+/etc/systemd/system/chat-bridge-oci.service
+/etc/systemd/system/chat-bridge-oci-tunnel.service
+/usr/local/bin/tunnel-client
+```
+
+Useful checks:
+
+```bash
+systemctl status chat-bridge-oci.service
+systemctl status chat-bridge-oci-tunnel.service
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/readyz
+```
+
+Run the MCP smoke test manually:
+
+```bash
+sudo -u chatbridge env \
+  HOME=/var/lib/chatbridge \
+  MCP_URL=http://127.0.0.1:8000/mcp \
+  /opt/chat-bridge-OCI/.venv/bin/python \
+  /opt/chat-bridge-OCI/smoke_test.py
+```
+
+## ChatGPT after an OCI rebuild
+
+If you reuse the same OpenAI Tunnel ID, the existing tunnel-backed
+`OCI VPS MCP` app in ChatGPT does not need to be recreated.
+
+Rebuild the OCI instance, run the two bootstrap commands, enter a valid runtime
+API key, and the tunnel should reconnect to the same OpenAI-hosted tunnel.
 
 ## Security model
 
-This is deliberately a small bridge, not a full host-management daemon.
+- MCP listens only on `127.0.0.1:8000`.
+- Secure MCP Tunnel makes outbound HTTPS connections to OpenAI.
+- `chatbridge` and `tunnelclient` are separate non-root users.
+- Neither account is added to sudoers by the bootstrap script.
+- systemd units use `NoNewPrivileges`, empty capability sets, filesystem
+  protection, and dedicated writable paths.
+- Tunnel credentials live outside the repository.
+- Child commands receive a reduced environment.
+- `run_command` is still powerful: Linux permissions remain the final security boundary.
 
-- File APIs reject paths outside `WORKSPACE_ROOT`.
-- `run_command` uses `shell=False`; commands are passed as an argv list.
-- Obvious privilege/system-management commands such as `sudo`, `su`,
-  `systemctl`, `mount`, `shutdown`, and `reboot` are blocked.
-- Child processes receive a reduced environment so service secrets are not
-  automatically forwarded to commands.
-- The recommended network path is localhost + Secure MCP Tunnel.
+Do not expose TCP 8000 publicly and do not commit runtime keys.
 
-**Important:** `run_command` is still powerful. Run this service as a dedicated,
-non-root Linux user whose filesystem permissions are limited to the code you
-want ChatGPT to modify. Linux user permissions are the final security boundary.
+## Manual/development install
 
-## Configuration
+`install.sh` remains available for local/manual MCP development without the
+full systemd + Secure MCP Tunnel bootstrap.
 
-Copy `.env.example` as a reference; the server reads environment variables
-directly.
+## Updating an existing OCI
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `WORKSPACE_ROOT` | `/workspace` | Root directory visible to file tools |
-| `MCP_HOST` | `127.0.0.1` | HTTP bind address |
-| `MCP_PORT` | `8000` | HTTP port |
-| `MAX_READ_BYTES` | `1048576` | Maximum file size accepted by `read_file` |
-| `MAX_WRITE_BYTES` | `2097152` | Maximum content size accepted by write tools |
-| `MAX_COMMAND_OUTPUT` | `200000` | Max stdout/stderr chars returned per command |
-| `MAX_COMMAND_TIMEOUT` | `600` | Hard upper bound for command timeout |
-| `CHAT_BRIDGE_EXTRA_ENV_KEYS` | empty | Comma-separated env keys to pass to child commands |
+From the repository clone:
 
-## Why no built-in OAuth?
+```bash
+git pull --ff-only
+bash bootstrap.sh
+```
 
-The minimal/private setup uses Secure MCP Tunnel, so the MCP service does not
-need to be exposed publicly. If you later publish this as a public remote MCP
-server, add standards-compliant OAuth 2.1 authorization before exposing write
-tools or private data.
+The bootstrap is designed to be safe to re-run. It refreshes the installed
+source, Python environment, official tunnel-client binary, systemd units, and
+health checks.
