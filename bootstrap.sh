@@ -243,8 +243,7 @@ for _ in {1..30}; do
   fi
   sleep 1
 done
-if ! grep -q 'run_command' /tmp/chat-bridge-smoke.out 2>/dev/null || \
-   ! grep -q 'toolbox' /tmp/chat-bridge-smoke.out 2>/dev/null; then
+if ! grep -q 'run_command' /tmp/chat-bridge-smoke.out 2>/dev/null; then
   cat /tmp/chat-bridge-smoke.err >&2 || true
   journalctl -u chat-bridge-oci.service -n 80 --no-pager >&2 || true
   die "MCP smoke test failed"
