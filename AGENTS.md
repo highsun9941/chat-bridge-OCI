@@ -22,17 +22,17 @@ If already inside the repository:
 bash bootstrap.sh
 ```
 
-The script will request the OpenAI Secure MCP Tunnel runtime API key through a
-hidden TTY prompt. Never echo that key, put it into a command line, source file,
-issue, log message, or Git commit.
+The script requests two values through the TTY:
 
-The default tunnel ID is:
+1. the user's own OpenAI Secure MCP Tunnel ID;
+2. the OpenAI Secure MCP Tunnel runtime API key through a hidden prompt.
 
-```text
-tunnel_6ab6752e2e9c8191b323f8ad2626d3ed
-```
+There is no repository-default Tunnel ID. Never substitute a developer's
+personal Tunnel ID for the user's own value. Never echo the runtime key, put it
+into a command line, source file, issue, log message, or Git commit.
 
-Only use `OPENAI_TUNNEL_ID=...` when the user explicitly wants another tunnel.
+For non-interactive automation, `OPENAI_TUNNEL_ID` and
+`CONTROL_PLANE_API_KEY` may be supplied securely as environment variables.
 
 ## Expected end state
 
