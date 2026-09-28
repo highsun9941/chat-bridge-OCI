@@ -12,11 +12,8 @@ and deployed-service verification. Keep user-facing instructions there.
 - Keep tunnel-client under the separate, hardened `tunnelclient` account.
 - Enable both services at boot. Bind MCP to `127.0.0.1:8000` and tunnel health
   to `127.0.0.1:8080`; never expose MCP publicly or open inbound port 8000.
-- Use `/home/ubuntu/projects/chatgptweb` for ordinary files, scripts, notes,
-  downloads, and scratch work. This is a default, not a security boundary:
-  absolute working directories and system administration under `/etc`, `/usr`,
-  `/var`, `/opt`, and `/root` are allowed. Prefer `ubuntu:ubuntu` ownership for
-  ordinary project files when practical.
+- The default command working directory is `/`. Use an explicit absolute `cwd`
+  when a task needs a project or scratch directory. This is not a security boundary.
 
 ## Maintenance
 
