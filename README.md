@@ -2,8 +2,8 @@
 
 Manage an OCI instance from ChatGPT through OpenAI Secure MCP Tunnel.
 The MCP server exposes one tool, `run_command`, with **root privileges**.
-Its default work directory, `/home/ubuntu/projects/chatgptweb`, is a convenience,
-not a filesystem sandbox. Keep a recovery path such as a boot-volume backup.
+Commands default to `/` when no working directory is supplied. This is not a
+filesystem sandbox. Keep a recovery path such as a boot-volume backup.
 
 ## Install
 
@@ -79,7 +79,7 @@ name to inspect any overrides when an existing installation behaves differently.
 
 `run_command(argv, cwd=".", timeout_seconds=120)` runs an argv-style command,
 for example `["systemctl", "status", "docker", "--no-pager"]`.
-Relative `cwd` values resolve from `AGENT_WORKDIR`; absolute paths are allowed.
+Relative `cwd` values resolve from `/`; absolute paths are allowed.
 The result contains `argv`, `cwd`, `exit_code`, `stdout`, `stderr`, `timed_out`,
 and `truncated`. A timeout returns `exit_code: null` and any captured output.
 
@@ -88,7 +88,6 @@ use a systemd override; for local development, set them when launching it.
 
 | Variable | Default |
 | --- | --- |
-| `AGENT_WORKDIR` | `/home/ubuntu/projects/chatgptweb` |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8000` (keep the host on loopback) |
 | `MAX_COMMAND_TIMEOUT` | `600` seconds; requests are clamped to 1–600 by default |
 | `MAX_COMMAND_OUTPUT` | `200000` characters per output stream |
@@ -114,7 +113,7 @@ bash -n bootstrap.sh
 To run the server locally with your own user privileges:
 
 ```bash
-AGENT_WORKDIR="$PWD/.work" .venv/bin/chat-bridge-oci
+.venv/bin/chat-bridge-oci
 ```
 
 From another terminal, run `.venv/bin/python smoke_test.py`.
