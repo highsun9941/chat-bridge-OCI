@@ -63,7 +63,6 @@ class MCPStartupTests(unittest.TestCase):
             # These tests only talk to loopback, regardless of the host proxy.
             **{key: value for key, value in os.environ.items()
                if key.lower() not in {"http_proxy", "https_proxy", "all_proxy"}},
-            "AGENT_WORKDIR": self.temp.name,
             "MCP_HOST": "127.0.0.1",
             "MCP_PORT": str(self.port),
             "MCP_URL": f"http://127.0.0.1:{self.port}/mcp",
@@ -149,7 +148,6 @@ log() { printf '%s\n' "$*"; }
 die() { printf '%s\n' "$*" >&2; exit 1; }
 HEALTH_URL=http://127.0.0.1:8080
 MCP_URL=http://127.0.0.1:8000/mcp
-AGENT_WORKDIR=/test
 TUNNEL_ID=test-id
 systemctl() {
   printf 'systemctl %s\n' "$*" >>"$CALL_LOG"
