@@ -8,9 +8,7 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-DEFAULT_WORKDIR = Path(
-    os.environ.get("AGENT_WORKDIR", "/home/ubuntu/projects/chatgptweb")
-).expanduser().resolve()
+DEFAULT_WORKDIR = Path("/")
 HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MCP_PORT", "8000"))
 MAX_COMMAND_OUTPUT = int(os.environ.get("MAX_COMMAND_OUTPUT", "200000"))
@@ -79,7 +77,7 @@ def run_command(
 ) -> dict[str, Any]:
     """Run an argv-style command on the OCI instance.
 
-    The deployed service runs as root. Relative cwd resolves from AGENT_WORKDIR;
+    The deployed service runs as root. Relative cwd resolves from /;
     absolute system paths are allowed.
     Example: ["systemctl", "status", "docker", "--no-pager"].
     """
@@ -122,7 +120,6 @@ def run_command(
 
 
 def main() -> None:
-    DEFAULT_WORKDIR.mkdir(parents=True, exist_ok=True)
     mcp.run(
         transport="streamable-http",
         host=HOST,
