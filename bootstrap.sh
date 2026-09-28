@@ -2,7 +2,6 @@
 set -euo pipefail
 
 INSTALL_DIR="/opt/chat-bridge-OCI"
-AGENT_WORKDIR="/home/ubuntu/projects/chatgptweb"
 TUNNEL_HOME="/var/lib/tunnel-client"
 TUNNEL_ENV_DIR="/etc/chat-bridge-oci-tunnel"
 TUNNEL_ENV_FILE="$TUNNEL_ENV_DIR/tunnel.env"
@@ -56,14 +55,6 @@ if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
   for file in bootstrap.sh pyproject.toml server.py smoke_test.py README.md AGENTS.md; do
     install -o root -g root -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_DIR/$file"
   done
-fi
-
-log "Creating default agent work directory"
-if id -u ubuntu >/dev/null 2>&1; then
-  install -d -o ubuntu -g ubuntu -m 0755 /home/ubuntu/projects
-  install -d -o ubuntu -g ubuntu -m 0775 "$AGENT_WORKDIR"
-else
-  install -d -o root -g root -m 0755 "$AGENT_WORKDIR"
 fi
 
 log "Creating tunnel service user"
@@ -129,8 +120,7 @@ Wants=network-online.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=$AGENT_WORKDIR
-Environment=AGENT_WORKDIR=$AGENT_WORKDIR
+WorkingDirectory=/
 Environment=HOME=/root
 Environment=TMPDIR=/tmp
 Environment=XDG_CACHE_HOME=/root/.cache
@@ -243,7 +233,7 @@ printf '%s\n' \
   "Tunnel service:   $(systemctl is-active chat-bridge-oci-tunnel.service) / $(systemctl is-enabled chat-bridge-oci-tunnel.service)" \
   "Agent privilege:  root" \
   "Tunnel ID:        $TUNNEL_ID" \
-  "Default workdir:  $AGENT_WORKDIR" \
+  "Default workdir:  /" \
   "Local MCP:        $MCP_URL" \
   "Tunnel health:    $HEALTH_URL/readyz" \
   "" \
