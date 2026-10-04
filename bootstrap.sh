@@ -5,6 +5,7 @@ INSTALL_DIR="/opt/chat-bridge-OCI"
 TUNNEL_HOME="/var/lib/tunnel-client"
 TUNNEL_ENV_DIR="/etc/chat-bridge-oci-tunnel"
 TUNNEL_ENV_FILE="$TUNNEL_ENV_DIR/tunnel.env"
+# MCP와 상태 확인 포트는 인스턴스 내부(loopback)에만 바인딩한다.
 MCP_HOST="127.0.0.1"
 MCP_PORT=8000
 HEALTH_ADDR="127.0.0.1:8080"
@@ -16,6 +17,7 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
+# 설치는 root로 진행하며 자동화에 사용하는 환경 변수도 전달한다.
 if (( EUID != 0 )); then
   command -v sudo >/dev/null 2>&1 || die "sudo is required when not running as root"
   exec sudo -E bash "$0" "$@"
@@ -23,6 +25,7 @@ fi
 
 command -v apt-get >/dev/null 2>&1 || die "This bootstrap currently supports Ubuntu/Debian images (apt-get required)."
 
+# 자동화는 환경 변수로, 직접 설치는 터미널 입력으로 인증값을 받는다.
 TUNNEL_ID="${OPENAI_TUNNEL_ID:-}"
 if [[ -z "$TUNNEL_ID" ]]; then
   [[ -r /dev/tty ]] || die "No TTY available. Set OPENAI_TUNNEL_ID and re-run."
@@ -52,6 +55,7 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || \
 log "Installing repository into $INSTALL_DIR"
 install -d -o root -g root -m 0755 "$INSTALL_DIR"
 if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
+  # 배포 파일만 갱신해 설치 경로의 다른 사용자 데이터를 보존한다.
   for file in bootstrap.sh pyproject.toml server.py smoke_test.py README.md AGENTS.md; do
     install -o root -g root -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_DIR/$file"
   done
@@ -64,6 +68,7 @@ fi
 install -d -o tunnelclient -g tunnelclient -m 0750 "$TUNNEL_HOME"
 
 log "Installing MCP Python service"
+# 이전 의존성이 남지 않도록 이 서비스의 가상 환경만 새로 만든다.
 rm -rf "$INSTALL_DIR/.venv"
 python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/python" -m pip install -e "$INSTALL_DIR"
@@ -84,6 +89,7 @@ case "$(uname -m)" in
   *) die "Unsupported CPU architecture: $(uname -m)" ;;
 esac
 
+# 현재 CPU에 맞는 공식 Linux ZIP 파일과 제공된 검증값을 찾는다.
 read -r ASSET_URL ASSET_DIGEST < <(python3 - "$RELEASE_JSON" "$ARCH" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as f:
@@ -100,6 +106,7 @@ PY
 
 ARCHIVE="$TMP_DIR/tunnel-client.zip"
 curl -fL "$ASSET_URL" -o "$ARCHIVE"
+# 릴리스에 SHA-256이 있을 때 다운로드한 파일의 무결성을 확인한다.
 if [[ "$ASSET_DIGEST" == sha256:* ]]; then
   printf '%s  %s\n' "${ASSET_DIGEST#sha256:}" "$ARCHIVE" | sha256sum -c -
 fi
@@ -129,7 +136,7 @@ Environment=MCP_URL=$MCP_URL
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=$INSTALL_DIR/.venv/bin/chat-bridge-oci
-# After= dependencies wait for this MCP protocol check, including at boot.
+# 부팅 때도 이 MCP 프로토콜 검사가 끝난 뒤 After= 의존 서비스가 시작된다.
 ExecStartPost=$INSTALL_DIR/.venv/bin/python $INSTALL_DIR/smoke_test.py --wait-seconds 60
 TimeoutStartSec=75
 Restart=on-failure
@@ -142,6 +149,7 @@ EOF_UNIT
 
 log "Writing tunnel credentials and systemd service"
 install -d -o root -g tunnelclient -m 0750 "$TUNNEL_ENV_DIR"
+# systemd 환경 파일에서 값이 그대로 읽히도록 역슬래시와 따옴표를 이스케이프한다.
 quote_env() {
   local value="$1"
   value="${value//\\/\\\\}"
@@ -198,8 +206,8 @@ unset RUNTIME_KEY CONTROL_PLANE_API_KEY
 log "Starting root management agent"
 systemctl daemon-reload
 systemctl enable chat-bridge-oci.service chat-bridge-oci-tunnel.service
-# enable --now does not refresh an already active process. Stop the tunnel
-# before restarting MCP so it cannot discover the backend while it is down.
+# enable --now만으로는 실행 중인 프로세스가 갱신되지 않는다.
+# 터널을 먼저 멈추고 MCP 검사가 통과한 뒤 터널을 다시 시작한다.
 systemctl stop chat-bridge-oci-tunnel.service
 if ! systemctl restart chat-bridge-oci.service; then
   journalctl -u chat-bridge-oci.service -n 80 --no-pager >&2 || true

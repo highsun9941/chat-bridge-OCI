@@ -1,36 +1,35 @@
-# Agent instructions
+# 에이전트 작업 지침
 
-This repository provides root-level OCI administration through OpenAI Secure
-MCP Tunnel. See [README.md](README.md) for installation, configuration, updates,
-and deployed-service verification. Keep user-facing instructions there.
+이 저장소는 OpenAI Secure MCP Tunnel을 통한 root 권한 OCI 관리 도구입니다.
+설치, 설정, 업데이트, 운영 환경 확인 방법은 [README.md](README.md)에 정리합니다.
+사용자 안내는 README를 기준으로 유지하세요.
 
-## Invariants
+## 유지해야 할 동작
 
-- Expose exactly one MCP tool: `run_command`, with no executable blocklist.
-- Run the MCP service as root. Do not add a non-root or read-only filesystem
-  sandbox unless the user explicitly changes the authority model.
-- Keep tunnel-client under the separate, hardened `tunnelclient` account.
-- Enable both services at boot. Bind MCP to `127.0.0.1:8000` and tunnel health
-  to `127.0.0.1:8080`; never expose MCP publicly or open inbound port 8000.
-- `run_command` defaults to `/`; there is no dedicated agent workspace.
-  Use explicit absolute paths for persistent files and `/tmp` for disposable
-  maintenance scratch data. This is not a filesystem security boundary.
+- MCP 도구는 `run_command` 하나만 노출하며 실행 파일 차단 목록을 두지 않습니다.
+- MCP 서비스는 root로 실행합니다. 사용자가 권한 모델을 명시적으로 변경하지 않는 한
+  비root 실행이나 읽기 전용 파일시스템 샌드박스를 추가하지 않습니다.
+- tunnel-client는 보호 설정을 적용한 별도 `tunnelclient` 계정으로 실행합니다.
+- 두 서비스를 부팅 시 자동 시작합니다. MCP는 `127.0.0.1:8000`, 터널 상태 확인은
+  `127.0.0.1:8080`에 바인딩합니다. MCP를 외부에 노출하거나 인바운드 8000 포트를 열지 않습니다.
+- `run_command`의 기본 실행 경로는 `/`이며 전용 작업 폴더는 없습니다.
+  영구 파일에는 명시적인 절대 경로를, 임시 작업에는 `/tmp`를 사용합니다.
+  기본 경로는 파일시스템 접근을 제한하는 경계가 아닙니다.
 
-## Maintenance
+## 유지보수 원칙
 
-- Inspect current state and make the smallest change that solves the task.
-- Do not delete or overwrite unrelated user data. Back up important
-  configuration before replacing it when practical.
-- Never print or commit tunnel keys, API keys, SSH keys, or other credentials;
-  never include `tunnel.env` contents in reports.
-- Confirm high-impact irreversible actions (disk formatting, volume deletion,
-  destructive storage changes, or changes likely to lock out SSH) unless the
-  user explicitly requested that exact action.
-- Keep `bootstrap.sh` as the deployment entry point. Re-run it for updates
-  instead of manually editing the generated units.
-- Preserve explicit service restarts during bootstrap, the MCP `ExecStartPost`
-  protocol check, and `MCP_STARTUP_WAIT_TIMEOUT=60s`. The tunnel must wait for
-  actual MCP readiness during installation and boot.
-- After code changes, run the local checks in README. For live deployments,
-  also follow its service and HTTP checks; do not claim OCI reboot or tunnel
-  verification from local tests alone.
+- 현재 상태를 먼저 확인하고 필요한 문제를 해결하는 최소한의 변경만 합니다.
+- 관련 없는 사용자 데이터를 삭제하거나 덮어쓰지 않습니다.
+  중요한 설정을 교체할 때는 가능하면 먼저 백업합니다.
+- 터널 키, API 키, SSH 키 등 인증값을 출력하거나 커밋하지 않습니다.
+  보고서에 `tunnel.env` 내용을 포함하지 않습니다.
+- 디스크 포맷, 볼륨 삭제, 파괴적인 저장소 변경, SSH 접속을 막을 수 있는 변경 등
+  되돌리기 어려운 고영향 작업은 사용자가 해당 작업을 명시적으로 요청하지 않았다면 확인을 받습니다.
+- 배포 진입점은 `bootstrap.sh`로 유지합니다. 생성된 서비스 파일을 수동으로 고치기보다
+  업데이트할 때 bootstrap을 다시 실행합니다.
+- bootstrap의 명시적인 서비스 재시작, MCP의 `ExecStartPost` 프로토콜 검사,
+  `MCP_STARTUP_WAIT_TIMEOUT=60s`를 유지합니다.
+  설치와 부팅 모두에서 MCP가 실제로 준비된 뒤 터널이 연결되어야 합니다.
+- 코드를 변경하면 README의 로컬 검사를 실행합니다.
+  운영 환경을 변경할 때는 서비스·HTTP 검사도 진행합니다.
+  로컬 테스트만으로 OCI 재부팅이나 실제 터널 연결을 검증했다고 보고하지 않습니다.

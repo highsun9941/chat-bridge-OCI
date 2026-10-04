@@ -8,6 +8,7 @@ from typing import Any
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
+# 상대 경로도 /를 기준으로 해석한다. 전용 작업 폴더나 경로 제한은 없다.
 DEFAULT_WORKDIR = Path("/")
 HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MCP_PORT", "8000"))
@@ -16,6 +17,7 @@ MAX_COMMAND_TIMEOUT = int(os.environ.get("MAX_COMMAND_TIMEOUT", "600"))
 
 mcp = MCPServer("OCI Instance Management Agent")
 
+# 실제 시스템을 변경할 수 있는 도구라는 점을 MCP 호출자에게 알린다.
 COMMAND = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=True,
@@ -23,6 +25,7 @@ COMMAND = ToolAnnotations(
     open_world_hint=True,
 )
 
+# 부모 프로세스의 모든 환경 변수를 자식 명령에 자동으로 넘기지 않는다.
 SAFE_ENV_KEYS = {
     "PATH",
     "HOME",
@@ -61,6 +64,7 @@ def _safe_child_env() -> dict[str, str]:
 
 
 def _format_output(value: str | bytes | None) -> tuple[str, bool]:
+    # 시간 초과로 받은 bytes 출력도 일반 종료 결과와 같은 문자열 형식으로 맞춘다.
     if isinstance(value, bytes):
         value = value.decode("utf-8", "replace")
     value = value or ""
@@ -88,6 +92,7 @@ def run_command(
     timeout = max(1, min(int(timeout_seconds), MAX_COMMAND_TIMEOUT))
 
     try:
+        # 입력 대기를 막고 표준 출력과 표준 오류를 각각 수집한다.
         completed = subprocess.run(
             argv,
             cwd=workdir,
@@ -103,6 +108,7 @@ def run_command(
         stdout, stderr = completed.stdout, completed.stderr
         exit_code = completed.returncode
     except subprocess.TimeoutExpired as exc:
+        # 시간 초과 전의 출력도 보존하며 종료 코드는 None으로 구분한다.
         stdout, stderr = exc.stdout, exc.stderr
         exit_code = None
 

@@ -7,6 +7,7 @@ import os
 
 from mcp import Client
 
+# 도구 목록까지 확인해 이전 버전의 서버가 남아 있는 경우를 잡는다.
 EXPECTED_TOOLS = {"run_command"}
 
 
@@ -35,7 +36,7 @@ async def main(wait_seconds: float = 0) -> None:
     deadline = loop.time() + wait_seconds
     while True:
         try:
-            # Bound both each connection attempt and the total startup wait.
+            # 연결 시도당 최대 5초, 전체 대기는 남은 제한 시간 안에서 끝낸다.
             await asyncio.wait_for(
                 check_mcp(url), timeout=max(0, min(5, deadline - loop.time()))
             )

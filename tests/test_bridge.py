@@ -1,4 +1,4 @@
-"""Command and startup regressions; no root, systemd daemon, or tunnel keys needed."""
+"""명령 실행과 시작 순서의 회귀 검사. root, systemd 데몬, 터널 키 없이 실행한다."""
 from __future__ import annotations
 
 import asyncio
@@ -60,7 +60,7 @@ class MCPStartupTests(unittest.TestCase):
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
         self.env = {
-            # These tests only talk to loopback, regardless of the host proxy.
+            # 호스트의 프록시 설정과 관계없이 인스턴스 내부 주소로만 연결한다.
             **{key: value for key, value in os.environ.items()
                if key.lower() not in {"http_proxy", "https_proxy", "all_proxy"}},
             "MCP_HOST": "127.0.0.1",
@@ -138,8 +138,8 @@ class ProbeTimeoutTests(unittest.IsolatedAsyncioTestCase):
 
 class BootstrapRestartTests(unittest.TestCase):
     def run_startup(self, *, fail_mcp: bool = False) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-        # Exercise the real bootstrap startup section with fake host services.
-        # Package installation and /etc writes must never run in these tests.
+        # 가짜 서비스 명령으로 실제 bootstrap의 시작 순서를 검사한다.
+        # 이 테스트에서는 패키지 설치와 /etc 파일 쓰기를 실행하지 않는다.
         source = (ROOT / "bootstrap.sh").read_text()
         startup = source[source.index('log "Starting root management agent"'):]
         preamble = r'''
