@@ -36,9 +36,9 @@ async def main(wait_seconds: float = 0) -> None:
     deadline = loop.time() + wait_seconds
     while True:
         try:
-            # 연결 시도당 최대 5초, 전체 대기는 남은 제한 시간 안에서 끝낸다.
+            # 연결 시도당 최대 10초, 전체 대기는 남은 제한 시간 안에서 끝낸다.
             await asyncio.wait_for(
-                check_mcp(url), timeout=max(0, min(5, deadline - loop.time()))
+                check_mcp(url), timeout=max(0, min(10, deadline - loop.time()))
             )
             return
         except Exception as exc:
