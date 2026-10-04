@@ -56,7 +56,7 @@ log "Installing repository into $INSTALL_DIR"
 install -d -o root -g root -m 0755 "$INSTALL_DIR"
 if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
   # 배포 파일만 갱신해 설치 경로의 다른 사용자 데이터를 보존한다.
-  for file in bootstrap.sh pyproject.toml server.py smoke_test.py README.md AGENTS.md; do
+  for file in bootstrap.sh pyproject.toml server.py smoke_test.py README.md README-kr.md AGENTS.md; do
     install -o root -g root -m 0644 "$SCRIPT_DIR/$file" "$INSTALL_DIR/$file"
   done
 fi
