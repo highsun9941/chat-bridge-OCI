@@ -12,8 +12,9 @@ and deployed-service verification. Keep user-facing instructions there.
 - Keep tunnel-client under the separate, hardened `tunnelclient` account.
 - Enable both services at boot. Bind MCP to `127.0.0.1:8000` and tunnel health
   to `127.0.0.1:8080`; never expose MCP publicly or open inbound port 8000.
-- The default command working directory is `/`. Use an explicit absolute `cwd`
-  when a task needs a project or scratch directory. This is not a security boundary.
+- `run_command` defaults to `/`; there is no dedicated agent workspace.
+  Use explicit absolute paths for persistent files and `/tmp` for disposable
+  maintenance scratch data. This is not a filesystem security boundary.
 
 ## Maintenance
 

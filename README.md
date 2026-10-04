@@ -2,8 +2,8 @@
 
 Manage an OCI instance from ChatGPT through OpenAI Secure MCP Tunnel.
 The MCP server exposes one tool, `run_command`, with **root privileges**.
-Commands default to `/` when no working directory is supplied. This is not a
-filesystem sandbox. Keep a recovery path such as a boot-volume backup.
+Commands default to `/`; no dedicated agent workspace is required. This is not
+a filesystem sandbox. Keep a recovery path such as a boot-volume backup.
 
 ## Install
 
@@ -27,6 +27,8 @@ For automation, securely supply `OPENAI_TUNNEL_ID` and `CONTROL_PLANE_API_KEY`
 in the environment. There are no default credentials, and `.env` files are not
 automatically loaded.
 
+## Installed result
+
 Bootstrap installs the application and the latest official
 [OpenAI tunnel-client](https://github.com/openai/tunnel-client) release, checking
 its SHA-256 digest when published. It enables both services at boot:
@@ -38,8 +40,23 @@ its SHA-256 digest when published. It enables both services at boot:
 
 The tunnel uses outbound HTTPS. Do not open inbound port 8000 or bind MCP publicly.
 Application files live in `/opt/chat-bridge-OCI`; tunnel credentials live in
-`/etc/chat-bridge-oci-tunnel/tunnel.env` with restricted permissions. Never print
-or commit credentials.
+`/etc/chat-bridge-oci-tunnel/tunnel.env`, mode `0640`, owned by `root:tunnelclient`.
+Never print or commit credentials.
+
+This configuration was verified on a running OCI Ubuntu 24.04 arm64 instance
+on **2026-10-04**, with Python 3.12.3, MCP 2.2.0, and tunnel-client 0.0.15:
+
+| Check | Observed result |
+| --- | --- |
+| Services | Both active and enabled |
+| MCP tools | `run_command` only |
+| `run_command(["id", "-u"])` | Exit code `0`, stdout `0` (root) |
+| `run_command(["pwd"])` | Exit code `0`, stdout `/` |
+| `/healthz` / `/readyz` | HTTP `200`, `live` / `ready` |
+| Boot order | MCP protocol check completed before the tunnel started |
+
+These versions describe the verified deployment; future installs use the
+declared dependency range and the latest tunnel-client release.
 
 ## Update and check
 
@@ -75,11 +92,17 @@ sudo journalctl -u chat-bridge-oci.service -u chat-bridge-oci-tunnel.service -n 
 Bootstrap preserves local systemd drop-ins. Use `systemctl cat` with the service
 name to inspect any overrides when an existing installation behaves differently.
 
+The verified deployment logged an `OAuth discovery failed` warning because
+the local MCP server does not advertise OAuth metadata. Its `/health/oauth`
+diagnostic reported `status: ok`, `state: not_advertised`, and `/readyz` remained
+HTTP `200`. Check readiness alongside that warning.
+
 ## Command interface and configuration
 
 `run_command(argv, cwd=".", timeout_seconds=120)` runs an argv-style command,
 for example `["systemctl", "status", "docker", "--no-pager"]`.
-Relative `cwd` values resolve from `/`; absolute paths are allowed.
+The API default `cwd="."` resolves to `/` in the deployed service. Relative
+`cwd` values resolve from `/`; absolute paths are allowed.
 The result contains `argv`, `cwd`, `exit_code`, `stdout`, `stderr`, `timed_out`,
 and `truncated`. A timeout returns `exit_code: null` and any captured output.
 

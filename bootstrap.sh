@@ -120,7 +120,6 @@ Wants=network-online.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/
 Environment=HOME=/root
 Environment=TMPDIR=/tmp
 Environment=XDG_CACHE_HOME=/root/.cache
@@ -233,7 +232,6 @@ printf '%s\n' \
   "Tunnel service:   $(systemctl is-active chat-bridge-oci-tunnel.service) / $(systemctl is-enabled chat-bridge-oci-tunnel.service)" \
   "Agent privilege:  root" \
   "Tunnel ID:        $TUNNEL_ID" \
-  "Default workdir:  /" \
   "Local MCP:        $MCP_URL" \
   "Tunnel health:    $HEALTH_URL/readyz" \
   "" \
