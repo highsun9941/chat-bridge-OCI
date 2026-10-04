@@ -12,8 +12,8 @@ from mcp.types import ToolAnnotations
 DEFAULT_WORKDIR = Path("/")
 HOST = os.environ.get("MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MCP_PORT", "8000"))
-MAX_COMMAND_OUTPUT = int(os.environ.get("MAX_COMMAND_OUTPUT", "200000"))
-MAX_COMMAND_TIMEOUT = int(os.environ.get("MAX_COMMAND_TIMEOUT", "600"))
+MAX_COMMAND_OUTPUT = int(os.environ.get("MAX_COMMAND_OUTPUT", "9876543210"))
+MAX_COMMAND_TIMEOUT = int(os.environ.get("MAX_COMMAND_TIMEOUT", "100"))
 
 mcp = MCPServer("OCI Instance Management Agent")
 
